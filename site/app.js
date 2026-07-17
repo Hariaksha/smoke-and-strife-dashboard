@@ -324,7 +324,8 @@ async function main() {
     `not population averages; months flagged preliminary use near-real-time fire detections that have not yet passed science-quality processing. ` +
     `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
     `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
-    `Code &amp; paper: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>.`;
+    `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>. ` +
+    `Paper: <a href="https://github.com/Hariaksha/wlidfire-conflict/blob/main/paper/draft.pdf">draft.pdf</a>.`;
 
   // redraw svg colors on theme flip
   new MutationObserver(() => { $('threshChart').innerHTML = ''; $('eventChart').innerHTML = '';
