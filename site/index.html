@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smoke and Strife — Live Wind-IV Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #1baf7a; --series-3: #eda100;
+  --seq-100:#cde2fb; --seq-200:#9ec5f4; --seq-300:#6da7ec; --seq-400:#3987e5;
+  --seq-500:#256abf; --seq-600:#184f95; --seq-700:#0d366b;
+  --good: #006300; --warning: #fab219; --critical: #d03b3b;
+}
+:root[data-theme="dark"], :root:not([data-theme="light"]) { }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #199e70; --series-3: #c98500;
+    --good: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19;
+  --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #199e70; --series-3: #c98500;
+  --good: #0ca30c;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--page); color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: 24px 20px 64px;
+}
+.wrap { max-width: 1100px; margin: 0 auto; }
+header { margin-bottom: 20px; }
+h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); margin-top: 4px; max-width: 72ch; }
+.vintages { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 12px; font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.chip b { color: var(--text-primary); font-weight: 600; }
+.chip.prelim b { color: var(--warning); }
+#themeBtn {
+  float: right; background: var(--surface-1); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px;
+  cursor: pointer; font: inherit; font-size: 13px;
+}
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 20px 0; }
+.tile {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+}
+.tile .k { font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tile .v { font-size: 28px; font-weight: 650; margin-top: 2px; }
+.tile .d { font-size: 12.5px; color: var(--text-secondary); margin-top: 2px; }
+.tile .v .stars { color: var(--good); font-size: 18px; vertical-align: super; }
+section.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px 14px; margin-bottom: 16px;
+}
+section.card h2 { font-size: 16px; font-weight: 650; }
+section.card .note { font-size: 13px; color: var(--text-secondary); margin: 3px 0 10px; max-width: 88ch; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.axis text { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.baseline { stroke: var(--baseline); stroke-width: 1; }
+.zline { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.dlabel { font-size: 12px; font-weight: 600; fill: var(--text-secondary); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+td.neg { color: var(--series-1); font-weight: 600; }
+details { margin-top: 8px; font-size: 13px; }
+details summary { cursor: pointer; color: var(--muted); }
+.tooltip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 8px 10px; font-size: 12.5px;
+  color: var(--text-secondary); max-width: 260px;
+}
+.tooltip b { color: var(--text-primary); }
+.maprow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.maprow button {
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-secondary); padding: 4px 12px; cursor: pointer; font: inherit; font-size: 13px;
+}
+.maprow button[aria-pressed="true"] { background: var(--series-1); color: #fff; border-color: transparent; }
+.map-scale { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-left: auto; }
+.map-scale .ramp { display: flex; }
+.map-scale .ramp i { width: 22px; height: 10px; display: block; }
+.district { stroke: var(--page); stroke-width: 0.4; cursor: pointer; }
+.district:hover { stroke: var(--text-primary); stroke-width: 1; }
+footer { color: var(--muted); font-size: 12.5px; margin-top: 24px; max-width: 90ch; }
+footer a { color: var(--text-secondary); }
+.err { background: var(--surface-1); border: 1px solid var(--critical); border-radius: 12px; padding: 16px; }
+@media (max-width: 640px) { .tiles { grid-template-columns: 1fr 1fr; } h1 { font-size: 20px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <button id="themeBtn" aria-label="Toggle color theme">◐ theme</button>
+    <h1>Smoke and Strife — Live Dashboard</h1>
+    <p class="sub">Fire-driven haze exposure and social conflict in Indonesia, re-estimated
+      weekly with an upwind-fire instrument on updating ACLED conflict data, NASA
+      FIRMS/VIIRS fire detections, and ERA5 winds. Companion to the working paper by
+      Hariaksha Gunda (University of Alabama).</p>
+    <div class="vintages" id="vintages"></div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card">
+    <h2>Effect of fire intensity on conflict, by conflict-activity threshold</h2>
+    <p class="note">IV coefficient on instrumented log FRP with district and year-month fixed
+      effects, province-clustered standard errors, and one distributed lag. Each row restricts
+      the panel to districts with conflict in at least τ of sample months — the paper's headline
+      gradient: a null on average, increasingly negative where conflict is a recurring phenomenon.
+      Whiskers are 95% confidence intervals.</p>
+    <div id="threshChart"></div>
+    <details><summary>Data table</summary><div id="threshTable"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>Which kinds of conflict respond? Event-type decomposition (τ ≥ 30% sample)</h2>
+    <p class="note">The suppression effect is concentrated in riots and violence against
+      civilians; planned protests and organized battles are unaffected — the pattern that
+      distinguishes a spontaneous-crowd mechanism from a simple disruption-of-assembly story.</p>
+    <div id="eventChart"></div>
+    <details><summary>Data table</summary><div id="eventTable"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>How the headline estimate evolves as data accumulates</h2>
+    <p class="note">The τ ≥ 30% coefficient re-estimated on expanding windows (activity
+      thresholds recomputed within each window — an out-of-sample stability check). Shaded band
+      is the 95% confidence interval; months whose fire data is still near-real-time quality are
+      re-estimated automatically once science-quality data lands.</p>
+    <div class="legend" id="expLegend"></div>
+    <div id="expChart"></div>
+  </section>
+
+  <section class="card">
+    <h2>National monthly activity</h2>
+    <p class="note">Monthly totals across the panel's districts. Conflict events and fire
+      radiative power are different scales, so they get separate panels sharing the time axis.</p>
+    <div class="legend" id="tsLegend"></div>
+    <div id="tsChart"></div>
+    <div id="frpChart"></div>
+    <details><summary>Data table</summary><div id="tsTable"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>District map — last three panel months</h2>
+    <div class="maprow" role="group" aria-label="Map variable">
+      <button data-var="total_frp" aria-pressed="true">Fire intensity (FRP)</button>
+      <button data-var="events" aria-pressed="false">Conflict events</button>
+      <button data-var="pv_events" aria-pressed="false">Political violence</button>
+      <div class="map-scale"><span>low</span><span class="ramp" id="mapRamp"></span><span id="mapHi">high</span></div>
+    </div>
+    <div id="map"></div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+<div class="tooltip" id="tooltip"></div>
+<script src="app.js"></script>
+</body>
+</html>

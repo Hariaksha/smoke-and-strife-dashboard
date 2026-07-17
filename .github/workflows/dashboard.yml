@@ -1,0 +1,65 @@
+name: Update live dashboard
+
+on:
+  schedule:
+    # Wednesdays 06:00 UTC - after ACLED's weekly release cycle
+    - cron: '0 6 * * 3'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: dashboard-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly update
+        env:
+          ACLED_EMAIL: ${{ secrets.ACLED_EMAIL }}
+          ACLED_PASSWORD: ${{ secrets.ACLED_PASSWORD }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
+          ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
+          ARRAYLAKE_ORG: ${{ secrets.ARRAYLAKE_ORG }}
+        run: python -m pipeline.run_update
+
+      - name: Commit refreshed artifacts
+        run: |
+          git config user.name "dashboard-bot"
+          git config user.email "actions@github.com"
+          git add data site/data
+          git diff --cached --quiet || git commit -m "Weekly dashboard data update"
+          git push
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
