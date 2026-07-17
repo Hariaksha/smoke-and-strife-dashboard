@@ -19,6 +19,7 @@ Both return district-agnostic gridded monthly means over the Indonesia box;
 aggregation to districts happens in panel.py.
 """
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,39 @@ import pandas as pd
 import xarray as xr
 
 from . import config
+
+FETCH_TIMEOUT_S = 90
+
+
+def _with_timeout(fn, args, timeout_s):
+    """Run fn(*args) with a hard wall-clock timeout.
+
+    The underlying S3/arraylake stack has its own internal retry policy
+    (observed in practice: hundreds of retries at ~120s backoff on a
+    transient 500/502 from Earthmover - hours of wall-clock time) that
+    swallows errors internally and never raises, so our per-backend
+    try/except in fetch_wind_months never gets a chance to fall back to
+    CDS. A daemon thread + join(timeout) bounds wall-clock time regardless
+    of what's happening inside that stack; the thread is abandoned (not
+    killed - Python can't do that) if it doesn't finish in time, but as a
+    daemon it won't block process exit.
+    """
+    result = {}
+
+    def target():
+        try:
+            result['value'] = fn(*args)
+        except Exception as exc:
+            result['error'] = exc
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        raise TimeoutError(f'{fn.__name__} exceeded {timeout_s}s (abandoning, still running in background)')
+    if 'error' in result:
+        raise result['error']
+    return result['value']
 
 
 def _earthmover_available():
@@ -142,15 +176,17 @@ def fetch_wind_months(months):
         return pd.DataFrame()
     backends = []
     if _earthmover_available():
-        backends.append(('earthmover', _fetch_month_earthmover))
-    backends.append(('cds', _fetch_month_cds))
+        backends.append(('earthmover', _fetch_month_earthmover, FETCH_TIMEOUT_S))
+    # CDS legitimately polls a request queue that can take minutes even on
+    # success, so it gets a much longer bound than Earthmover.
+    backends.append(('cds', _fetch_month_cds, 600))
 
     frames = []
     for (y, m) in months:
         got = False
-        for name, fn in backends:
+        for name, fn, timeout_s in backends:
             try:
-                frames.append(fn(y, m))
+                frames.append(_with_timeout(fn, (y, m), timeout_s))
                 print(f'  wind: fetched {y}-{m:02d} via {name}')
                 got = True
                 break
