@@ -4,16 +4,25 @@ All secrets come from environment variables so nothing sensitive is ever
 committed:
     ACLED_EMAIL / ACLED_PASSWORD  - myACLED account (OAuth password grant)
     FIRMS_MAP_KEY                 - NASA FIRMS map key
+    ARRAYLAKE_ENABLED             - opt-in flag ("1") to try Earthmover for
+                                     wind at all. Off by default: the free
+                                     public tier has shown inconsistent
+                                     failure modes in practice (sometimes a
+                                     clean fast rejection, sometimes an
+                                     internal retry loop lasting hours - see
+                                     fetch_wind.py). CDS is the default
+                                     wind source until that's resolved or
+                                     the paid tier is used instead.
     ARRAYLAKE_REPO / ARRAYLAKE_TOKEN
-                                   - Earthmover Arraylake. Defaults to the
-                                     free public "earthmover-public/era5"
-                                     repo (quarterly updates, no token
-                                     needed). Set ARRAYLAKE_REPO to
-                                     "{your_org}/era5" and ARRAYLAKE_TOKEN
-                                     to use the paid "ERA5 (Daily Updates)"
-                                     marketplace subscription instead.
-    CDSAPI_URL / CDSAPI_KEY       - Copernicus CDS (ERA5), fallback wind
-                                     backend if Earthmover isn't configured
+                                   - only read when ARRAYLAKE_ENABLED=1.
+                                     Defaults to the free public
+                                     "earthmover-public/era5" repo. Set
+                                     ARRAYLAKE_REPO to "{your_org}/era5"
+                                     and ARRAYLAKE_TOKEN to use the paid
+                                     "ERA5 (Daily Updates)" subscription.
+    CDSAPI_URL / CDSAPI_KEY       - Copernicus CDS (ERA5), the default wind
+                                     backend - register at
+                                     cds.climate.copernicus.eu for a key
 """
 import os
 from pathlib import Path
@@ -64,6 +73,7 @@ ACLED_PASSWORD = os.environ.get('ACLED_PASSWORD', '')
 FIRMS_MAP_KEY = os.environ.get('FIRMS_MAP_KEY', '')
 CDSAPI_URL = os.environ.get('CDSAPI_URL', 'https://cds.climate.copernicus.eu/api')
 CDSAPI_KEY = os.environ.get('CDSAPI_KEY', '')
+ARRAYLAKE_ENABLED = os.environ.get('ARRAYLAKE_ENABLED', '') == '1'
 ARRAYLAKE_TOKEN = os.environ.get('ARRAYLAKE_TOKEN', '')  # only for the paid tier
 ARRAYLAKE_REPO = os.environ.get('ARRAYLAKE_REPO', 'earthmover-public/era5')
 

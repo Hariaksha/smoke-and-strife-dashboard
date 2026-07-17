@@ -163,12 +163,29 @@ def main():
     meta = json.loads(config.META_JSON.read_text())
     districts = spatial.load_districts()
 
+    # Each source fetches (network, can fail) before it persists (writes
+    # parquet), in that order, so a failure here never leaves an artifact
+    # ahead of what `meta` records. One source's outage - anything from a
+    # transient API error to a real bug - must not cost the other two
+    # sources' progress or block build_results from running on whatever
+    # vintages are actually available.
     print('Updating conflict data (ACLED)...')
-    meta = update_conflict(meta, districts)
+    try:
+        meta = update_conflict(meta, districts)
+    except Exception as exc:
+        print(f'  ACLED update failed, keeping stored vintage: {exc}')
+
     print('Updating wind data (ERA5)...')
-    meta = update_wind(meta, districts)
+    try:
+        meta = update_wind(meta, districts)
+    except Exception as exc:
+        print(f'  Wind update failed, keeping stored vintage: {exc}')
+
     print('Updating fire data (FIRMS)...')
-    meta = update_fires(meta, districts)
+    try:
+        meta = update_fires(meta, districts)
+    except Exception as exc:
+        print(f'  Fire update failed, keeping stored vintage: {exc}')
 
     meta['last_run'] = datetime.now(timezone.utc).isoformat()
     config.META_JSON.write_text(json.dumps(meta, indent=2))

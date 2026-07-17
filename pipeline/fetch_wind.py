@@ -1,19 +1,32 @@
 """Fetch ERA5 monthly-mean 10m winds for missing months.
 
-Two backends, tried in order:
-  earthmover - Earthmover's Arraylake marketplace. Defaults to the free
-               public "earthmover-public/era5" repo (ARRAYLAKE_REPO),
-               refreshed quarterly, no credentials required - just
-               `pip install arraylake zarr`. Point ARRAYLAKE_REPO at
-               "{your_org}/era5" and set ARRAYLAKE_TOKEN to use the paid
-               "ERA5 (Daily Updates)" product instead (SLA: within 4 hours
-               of ECMWF publication). The two editions nest hourly u10/v10
-               under different group paths, so _fetch_month_earthmover
-               probes for whichever exists rather than hardcoding one.
-  cds        - Copernicus Climate Data Store API (free). ERA5T monthly means
-               for month M appear around day 5-6 of month M+1. Used only when
-               Earthmover isn't installed/configured or a given month's read
-               fails there.
+Two backends:
+  cds        - Copernicus Climate Data Store API. The default and, unless
+               ARRAYLAKE_ENABLED=1, the only one tried. ERA5T monthly means
+               for month M appear around day 5-6 of month M+1.
+  earthmover - Earthmover's Arraylake marketplace, tried first when
+               ARRAYLAKE_ENABLED=1. Defaults to the free public
+               "earthmover-public/era5" repo (ARRAYLAKE_REPO); point
+               ARRAYLAKE_REPO at "{your_org}/era5" and set ARRAYLAKE_TOKEN
+               for the paid "ERA5 (Daily Updates)" product instead (SLA:
+               within 4 hours of ECMWF publication). The two editions nest
+               hourly u10/v10 under different group paths, so
+               _fetch_month_earthmover probes for whichever exists rather
+               than hardcoding one.
+
+               Disabled by default: in practice the free tier has shown two
+               different failure modes across otherwise-identical calls -
+               a clean fast "not logged in" rejection, and an internal
+               retry loop (observed: hundreds of attempts at ~120s backoff,
+               hours of wall-clock time) that never raises back to Python,
+               so fetch_wind_months's per-backend try/except never gets a
+               chance to fall back to CDS. _with_timeout below bounds that
+               at the thread level, but since the underlying S3 access is
+               Rust code (icechunk, via an async runtime), a thread
+               join(timeout) may not reliably interrupt it in every case -
+               re-enable only once that's been verified against a real
+               reproduction of the retry-loop failure, not just a
+               time.sleep() stand-in.
 
 Both return district-agnostic gridded monthly means over the Indonesia box;
 aggregation to districts happens in panel.py.
@@ -175,7 +188,7 @@ def fetch_wind_months(months):
     if not months:
         return pd.DataFrame()
     backends = []
-    if _earthmover_available():
+    if config.ARRAYLAKE_ENABLED and _earthmover_available():
         backends.append(('earthmover', _fetch_month_earthmover, FETCH_TIMEOUT_S))
     # CDS legitimately polls a request queue that can take minutes even on
     # success, so it gets a much longer bound than Earthmover.

@@ -8,8 +8,14 @@ Two sources:
                    months are flagged "preliminary" and re-pulled weekly
                    until SP supersedes them)
 
-Area API: /api/area/csv/{KEY}/{SOURCE}/{west,south,east,north}/{days<=10}/{date}
+Area API: /api/area/csv/{KEY}/{SOURCE}/{west,south,east,north}/{days<=5}/{date}
 Rate limit: 5000 transactions per 10 minutes (we use a few dozen).
+
+Note: the day-range cap is 5, not FIRMS's documented general max of 10 -
+verified empirically (both VIIRS_SNPP_SP and VIIRS_SNPP_NRT reject days=10
+with "Invalid day range. Expects [1..5]." on this MAP_KEY), so this may be
+a per-key/tier limit rather than a global API constant. If FIRMS ever
+raises it, MAX_DAYS below is the only place to change.
 """
 import io
 import time
@@ -21,6 +27,7 @@ import requests
 from . import config
 
 AREA = ','.join(str(v) for v in config.BBOX)
+MAX_DAYS = 5
 
 
 def sp_last_available():
@@ -33,11 +40,11 @@ def sp_last_available():
 
 
 def _fetch_range(source, start, end):
-    """Pull detections for [start, end] inclusive, in <=10-day windows."""
+    """Pull detections for [start, end] inclusive, in <=MAX_DAYS-day windows."""
     frames = []
     cur = start
     while cur <= end:
-        days = min(10, (end - cur).days + 1)
+        days = min(MAX_DAYS, (end - cur).days + 1)
         url = (f'{config.FIRMS_AREA_URL}/{config.FIRMS_MAP_KEY}/{source}/'
                f'{AREA}/{days}/{cur.isoformat()}')
         r = requests.get(url, timeout=300)
