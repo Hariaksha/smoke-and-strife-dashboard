@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 *.bak
 secrets.env
+
+# scoping/ scratch data - regenerable by the scripts themselves (GADM
+# downloads, one-off gut-check pulls), not needed for anything to run
+scoping/*_data/

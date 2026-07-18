@@ -4,6 +4,7 @@
 const NS = 'http://www.w3.org/2000/svg';
 const $ = (id) => document.getElementById(id);
 const tooltip = $('tooltip');
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ── theme toggle ──────────────────────────────────────────────────────────
 $('themeBtn').addEventListener('click', () => {
@@ -174,26 +175,57 @@ function coefPlot(container, rows) {
     el('text', { x: x(t), y: H - 10, 'text-anchor': 'middle' }, g).textContent = fmt(t, 2);
   }
   el('line', { x1: x(0), x2: x(0), y1: M.t, y2: H - M.b, class: 'zline' }, svg);
+  const zx = x(0);
+  const animRows = [];
   rows.forEach((r, i) => {
     const cy = M.t + i * rowH + rowH / 2;
     const sig = r.p < 0.05;
     const color = sig ? css('--series-1') : css('--muted');
     el('text', { x: M.l - 12, y: cy + 4, 'text-anchor': 'end', class: 'dlabel' }, svg)
       .textContent = r.label;
-    el('line', { x1: x(r.coef - 1.96 * r.se), x2: x(r.coef + 1.96 * r.se),
+    // Whisker/dot/label start collapsed at the zero baseline and animate out
+    // to their true position - visually reinforces "does this differ from
+    // zero", not just decorative motion.
+    const whisker = el('line', { x1: zx, x2: zx,
       y1: cy, y2: cy, stroke: color, 'stroke-width': 2, 'stroke-linecap': 'round' }, svg);
-    el('circle', { cx: x(r.coef), cy, r: 5, fill: color,
+    const dot = el('circle', { cx: zx, cy, r: 5, fill: color,
       stroke: css('--surface-1'), 'stroke-width': 2 }, svg);
-    el('text', { x: x(r.coef + 1.96 * r.se) + 8, y: cy + 4, class: 'dlabel',
-      style: `fill:${sig ? css('--series-1') : css('--muted')}` }, svg)
-      .textContent = fmt(r.coef, 3) + stars(r.p);
+    const label = el('text', { x: zx + 8, y: cy + 4, class: 'dlabel', opacity: 0,
+      style: `fill:${sig ? css('--series-1') : css('--muted')}` }, svg);
+    label.textContent = fmt(r.coef, 3) + stars(r.p);
     const hit = el('rect', { x: 0, y: cy - rowH / 2, width: W, height: rowH,
       fill: 'transparent' }, svg);
     hit.addEventListener('mousemove', (ev) => showTip(
       `<b>${r.label}</b><br>coef ${fmt(r.coef)} &nbsp; se ${r.se.toFixed(4)}<br>` +
       `p = ${r.p < 0.001 ? '&lt;0.001' : r.p.toFixed(3)}${r.extra || ''}`, ev));
     hit.addEventListener('mouseleave', hideTip);
+    animRows.push({ whisker, dot, label,
+      x1: x(r.coef - 1.96 * r.se), x2: x(r.coef + 1.96 * r.se), cx: x(r.coef),
+      labelX: x(r.coef + 1.96 * r.se) + 8 });
   });
+
+  if (typeof gsap === 'undefined') {
+    // GSAP failed to load (e.g. CDN blocked) - set final positions directly
+    // so the chart is still fully correct without it.
+    animRows.forEach(t => {
+      t.whisker.setAttribute('x1', t.x1); t.whisker.setAttribute('x2', t.x2);
+      t.dot.setAttribute('cx', t.cx);
+      t.label.setAttribute('x', t.labelX); t.label.setAttribute('opacity', 1);
+    });
+  } else if (reduceMotion()) {
+    animRows.forEach(t => {
+      gsap.set(t.whisker, { attr: { x1: t.x1, x2: t.x2 } });
+      gsap.set(t.dot, { attr: { cx: t.cx } });
+      gsap.set(t.label, { attr: { x: t.labelX }, opacity: 1 });
+    });
+  } else {
+    const tl = gsap.timeline({ defaults: { duration: 0.5, ease: 'power3.out' } });
+    animRows.forEach((t, i) => {
+      tl.to(t.whisker, { attr: { x1: t.x1, x2: t.x2 } }, i * 0.035)
+        .to(t.dot, { attr: { cx: t.cx } }, i * 0.035)
+        .to(t.label, { attr: { x: t.labelX }, opacity: 1, duration: 0.35 }, i * 0.035 + 0.15);
+    });
+  }
   return svg;
 }
 
@@ -464,7 +496,7 @@ function renderFooter(country) {
 }
 
 function orderSections(country) {
-  const wrap = document.querySelector('.wrap');
+  const wrap = $('content');
   const threshSection = $('threshSection'), eventSection = $('eventSection');
   if (country === 'nga') {
     // event-type decomposition is Nigeria's primary chart, promoted above
@@ -500,20 +532,51 @@ async function render(country, R) {
   renderFooter(country);
 }
 
+// Crossfades #content (everything below the header/toggle) around a
+// country switch or the initial load, instead of an instant DOM swap.
+// overwrite:true is required here - without it, a rapid second toggle
+// click starts a new tween on #content while the first is still running,
+// and the two competing autoAlpha tweens can leave it stuck at whatever
+// opacity they happened to blend to.
+function fadeContent(dir) {
+  return new Promise((resolve) => {
+    const content = $('content');
+    if (typeof gsap === 'undefined' || reduceMotion()) {
+      content.style.opacity = dir === 'out' ? '0' : '';
+      resolve();
+      return;
+    }
+    if (dir === 'out') {
+      gsap.to(content, { autoAlpha: 0, y: 6, duration: 0.16, ease: 'power1.in', overwrite: true, onComplete: resolve });
+    } else {
+      gsap.fromTo(content, { autoAlpha: 0, y: 6 },
+        { autoAlpha: 1, y: 0, duration: 0.4, ease: 'power2.out', overwrite: true, onComplete: resolve });
+    }
+  });
+}
+
+let switching = false;
 async function switchCountry(country) {
+  if (switching) return; // ignore clicks while a transition is already in flight
+  switching = true;
   document.querySelectorAll('#countryToggle button').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.country === country)));
+  if (currentR) await fadeContent('out');
   let R;
   try {
     R = await loadResults(country);
   } catch (e) {
     document.querySelector('.wrap').insertAdjacentHTML('beforeend',
       `<div class="err">Could not load <code>${PROFILES[country].resultsUrl}</code>. Run the pipeline first.</div>`);
+    await fadeContent('in');
+    switching = false;
     return;
   }
   currentCountry = country;
   currentR = R;
   await render(country, R);
+  await fadeContent('in');
+  switching = false;
 }
 
 document.querySelectorAll('#countryToggle button').forEach(b =>
