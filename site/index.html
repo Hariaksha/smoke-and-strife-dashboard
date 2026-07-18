@@ -109,6 +109,25 @@ details summary { cursor: pointer; color: var(--muted); }
 footer { color: var(--muted); font-size: 12.5px; margin-top: 24px; max-width: 90ch; }
 footer a { color: var(--text-secondary); }
 .err { background: var(--surface-1); border: 1px solid var(--critical); border-radius: 12px; padding: 16px; }
+.plain { border-left: 3px solid var(--series-1); background: var(--page); border-radius: 0 8px 8px 0;
+  padding: 10px 14px; margin: 4px 0 14px; font-size: 13.5px; color: var(--text-secondary); }
+.plain .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 4px; }
+.plain b { color: var(--text-primary); }
+.plain p { margin: 3px 0; }
+.plain .ns { color: var(--muted); font-style: italic; }
+.ctoggle { display: flex; gap: 6px; margin: 14px 0 4px; }
+.ctoggle button {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-secondary); padding: 5px 14px; cursor: pointer; font: inherit; font-size: 13.5px;
+}
+.ctoggle button[aria-pressed="true"] { background: var(--series-1); color: #fff; border-color: transparent; }
+.badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 4px 12px;
+  font-size: 12.5px; border: 1px solid var(--border);
+}
+.badge.pass { color: var(--good); border-color: var(--good); }
+.badge.fail { color: var(--critical); border-color: var(--critical); }
 @media (max-width: 640px) { .tiles { grid-template-columns: 1fr 1fr; } h1 { font-size: 20px; } }
 </style>
 </head>
@@ -116,38 +135,45 @@ footer a { color: var(--text-secondary); }
 <div class="wrap">
   <header>
     <button id="themeBtn" aria-label="Toggle color theme">◐ theme</button>
-    <h1>Smoke and Strife — Live Dashboard</h1>
-    <p class="sub">Fire-driven haze exposure and social conflict in Indonesia, re-estimated
+    <h1 id="pageTitle">Smoke and Strife — Live Dashboard</h1>
+    <p class="sub" id="pageSub">Fire-driven haze exposure and social conflict in Indonesia, re-estimated
       weekly with an upwind-fire instrument on updating ACLED conflict data, NASA
       FIRMS/VIIRS fire detections, and ERA5 winds. Companion to the
       <a href="https://github.com/Hariaksha/wlidfire-conflict/blob/main/paper/draft.pdf">working paper</a>
       by Hariaksha Gunda (University of Alabama).</p>
+    <div class="ctoggle" id="countryToggle" role="group" aria-label="Country">
+      <button data-country="idn" aria-pressed="true">Indonesia</button>
+      <button data-country="nga" aria-pressed="false">Nigeria</button>
+    </div>
     <div class="vintages" id="vintages"></div>
   </header>
 
   <div class="tiles" id="tiles"></div>
+  <div class="badge-row" id="robustBadges" style="display:none"></div>
+  <div id="robustNote" class="plain" style="display:none"></div>
 
-  <section class="card">
-    <h2>Effect of fire intensity on conflict, by conflict-activity threshold</h2>
-    <p class="note">IV coefficient on instrumented log FRP with district and year-month fixed
+  <section class="card" id="threshSection">
+    <h2 id="threshHeading">Effect of fire intensity on conflict, by conflict-activity threshold</h2>
+    <p class="note" id="threshNote">IV coefficient on instrumented log FRP with district and year-month fixed
       effects, province-clustered standard errors, and one distributed lag. Each row restricts
       the panel to districts with conflict in at least τ of sample months — the paper's headline
       gradient: a null on average, increasingly negative where conflict is a recurring phenomenon.
       Whiskers are 95% confidence intervals.</p>
+    <div id="plainLang" class="plain"></div>
     <div id="threshChart"></div>
     <details><summary>Data table</summary><div id="threshTable"></div></details>
   </section>
 
-  <section class="card">
-    <h2>Which kinds of conflict respond? Event-type decomposition (τ ≥ 30% sample)</h2>
-    <p class="note">The suppression effect is concentrated in riots and violence against
+  <section class="card" id="eventSection">
+    <h2 id="eventHeading">Which kinds of conflict respond? Event-type decomposition (τ ≥ 30% sample)</h2>
+    <p class="note" id="eventNote">The suppression effect is concentrated in riots and violence against
       civilians; planned protests and organized battles are unaffected — the pattern that
       distinguishes a spontaneous-crowd mechanism from a simple disruption-of-assembly story.</p>
     <div id="eventChart"></div>
     <details><summary>Data table</summary><div id="eventTable"></div></details>
   </section>
 
-  <section class="card">
+  <section class="card" id="expSection">
     <h2>How the headline estimate evolves as data accumulates</h2>
     <p class="note">The τ ≥ 30% coefficient re-estimated on expanding windows (activity
       thresholds recomputed within each window — an out-of-sample stability check). Shaded band
@@ -157,7 +183,7 @@ footer a { color: var(--text-secondary); }
     <div id="expChart"></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="tsSection">
     <h2>National monthly activity</h2>
     <p class="note">Monthly totals across the panel's districts. Conflict events and fire
       radiative power are different scales, so they get separate panels sharing the time axis.</p>
@@ -167,7 +193,7 @@ footer a { color: var(--text-secondary); }
     <details><summary>Data table</summary><div id="tsTable"></div></details>
   </section>
 
-  <section class="card">
+  <section class="card" id="mapSection">
     <h2>District map — last three panel months</h2>
     <div class="maprow" role="group" aria-label="Map variable">
       <button data-var="total_frp" aria-pressed="true">Fire intensity (FRP)</button>

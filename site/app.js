@@ -29,6 +29,43 @@ function ymIndex(yms) { // map ym ints to consecutive x positions
 }
 function fmt(x, d = 4) { return (x >= 0 ? '' : '−') + Math.abs(x).toFixed(d); }
 function stars(p) { return p < 0.01 ? '***' : p < 0.05 ? '**' : p < 0.1 ? '*' : ''; }
+
+// ── plain-language translation of a threshold row's coefficients ──────────
+// "One log-point" is a fixed multiplier (e ≈ 2.72x), not data-dependent.
+// The percent-of-outcome-mean conversion (coef / mean * 100) IS data-
+// dependent and must be computed live from whatever results.json currently
+// holds, not hardcoded to one week's numbers.
+const LOG_PT_MULT = Math.E;
+function pctOfMean(coef, mean) { return mean > 0 ? (coef / mean) * 100 : null; }
+function plainClause(coef, p, mean, noun) {
+  const pct = pctOfMean(coef, mean);
+  if (p >= 0.10 || pct === null)
+    return `<span class="ns">no statistically significant change in ${noun} detected</span>`;
+  const dir = coef < 0 ? 'fewer' : 'more';
+  return `~<b>${Math.abs(pct).toFixed(0)}% ${dir} ${noun}</b> (p=${p.toFixed(3)})`;
+}
+function plainLanguageHTML(thresholds) {
+  // Headline on the highest threshold with *any* significant result, since
+  // that's what the tiles above already feature; if nothing is significant
+  // anywhere, say so plainly rather than picking a number to feature.
+  const sig = thresholds.filter(t => t.events.p < 0.10 || t.pv_events.p < 0.10);
+  const t = sig.length ? sig[sig.length - 1] : thresholds[thresholds.length - 1];
+  const mult = LOG_PT_MULT.toFixed(1);
+  const pctJump = ((LOG_PT_MULT - 1) * 100).toFixed(0);
+  if (!sig.length) {
+    return `<div class="label">In plain terms</div>` +
+      `<p>In the ${t.n_districts} districts where conflict recurs most often (≥${(t.threshold*100).toFixed(0)}% of months), ` +
+      `a roughly ${pctJump}% jump in local fire intensity (fire intensity ×${mult}) shows ` +
+      `<span class="ns">no statistically significant effect on conflict this week</span> — the population-average finding is a precise null.</p>`;
+  }
+  return `<div class="label">In plain terms</div>` +
+    `<p>In the ${t.n_districts} districts where conflict recurs most often (≥${(t.threshold*100).toFixed(0)}% of months), ` +
+    `a roughly ${pctJump}% jump in local fire intensity (a "one-log-point" increase — fire intensity ×${mult}) is associated with ` +
+    `${plainClause(t.events.coef, t.events.p, t.mean_events, 'conflict events')} and ` +
+    `${plainClause(t.pv_events.coef, t.pv_events.p, t.mean_pv_events, 'political-violence events')}.</p>` +
+    `<p style="margin-top:6px">This is a <b>local effect for conflict-prone districts</b>, not a national average — ` +
+    `across all districts the population-average effect is a precise null (see the "Full-panel IV" tile above).</p>`;
+}
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function showTip(html, ev) {
   tooltip.innerHTML = html; tooltip.style.display = 'block';
@@ -174,7 +211,18 @@ function drawMap() {
   const bin = (v) => v <= 0 ? -1 :
     Math.min(6, Math.floor(Math.log1p(v) / Math.log1p(vmax) * 7));
 
-  const LON0 = 94.5, LON1 = 141.5, LAT0 = 6.5, LAT1 = -11.5;
+  // bounding box computed from the loaded geojson itself (not hardcoded),
+  // since Indonesia and Nigeria cover entirely different extents
+  let LON0 = Infinity, LON1 = -Infinity, LAT0 = -Infinity, LAT1 = Infinity;
+  for (const f of geo.features) {
+    const rings = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    for (const poly of rings) for (const ring of poly) for (const [lon, lat] of ring) {
+      if (lon < LON0) LON0 = lon; if (lon > LON1) LON1 = lon;
+      if (lat > LAT0) LAT0 = lat; if (lat < LAT1) LAT1 = lat;
+    }
+  }
+  const padLon = (LON1 - LON0) * 0.03, padLat = (LAT0 - LAT1) * 0.03;
+  LON0 -= padLon; LON1 += padLon; LAT0 += padLat; LAT1 -= padLat;
   const W = 1060, H = W * (LAT0 - LAT1) / (LON1 - LON0);
   const px = (lon) => (lon - LON0) / (LON1 - LON0) * W;
   const py = (lat) => (LAT0 - lat) / (LAT0 - LAT1) * H;
@@ -215,18 +263,25 @@ function tile(k, v, d) {
   return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
 }
 
-async function main() {
-  let R;
-  try {
-    R = await (await fetch('data/results.json')).json();
-  } catch (e) {
-    document.querySelector('.wrap').insertAdjacentHTML('beforeend',
-      '<div class="err">Could not load <code>data/results.json</code>. Run the pipeline first: <code>python -m pipeline.run_update</code></div>');
-    return;
-  }
-  const M = R.meta, V = M.vintages;
+const PROFILES = {
+  idn: { resultsUrl: 'data/results.json', geoUrl: 'data/districts.geojson' },
+  nga: { resultsUrl: 'data/results_nigeria.json', geoUrl: 'data/districts_nigeria.geojson' },
+};
+const resultsCache = {};
+let currentCountry = 'idn', currentR = null;
 
-  // vintage chips
+async function loadResults(country) {
+  if (resultsCache[country]) return resultsCache[country];
+  const R = await (await fetch(PROFILES[country].resultsUrl)).json();
+  resultsCache[country] = R;
+  return R;
+}
+
+// shared across both countries: vintage chips, threshold section, event
+// section, national time series, map. Only the tiles/badges/notes and
+// section order/visibility differ.
+function renderVintages(M) {
+  const V = M.vintages;
   const prelim = M.preliminary_months.length;
   $('vintages').innerHTML = [
     `<span class="chip">Panel <b>${ymLabel(M.panel_start)} – ${ymLabel(M.panel_end)}</b></span>`,
@@ -236,21 +291,9 @@ async function main() {
     `<span class="chip">ERA5 wind through <b>${ymLabel(V.wind_through)}</b></span>`,
     `<span class="chip">Updated <b>${new Date(M.generated_at).toISOString().slice(0, 10)}</b></span>`,
   ].join('');
+}
 
-  // tiles
-  const t30 = R.thresholds.find(t => Math.abs(t.threshold - 0.30) < 1e-9);
-  const full = R.full_iv.find(s => s.label === 'IV-1');
-  $('tiles').innerHTML =
-    tile('First-stage F', Math.round(R.first_stage.f_stat).toLocaleString(),
-      `upwind FRP → local FRP · instrument is ${R.first_stage.f_stat > 10 ? 'strong' : 'WEAK'}`) +
-    tile('Full-panel IV (all events)', `${fmt(full.coef, 4)}<span class="stars">${stars(full.p)}</span>`,
-      `p = ${full.p.toFixed(2)} · the population-average null`) +
-    tile('Conflict-active districts (τ≥30%)', `${fmt(t30.events.coef, 3)}<span class="stars">${stars(t30.events.p)}</span>`,
-      `events per log-point FRP · p = ${t30.events.p.toFixed(3)} · ${t30.n_districts} districts`) +
-    tile('Panel', `${M.n_obs.toLocaleString()}`,
-      `district-months · ${M.n_districts} districts · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`);
-
-  // threshold coefficient plot + table
+function renderThreshSection(R) {
   const threshRows = [];
   for (const t of R.thresholds) {
     threshRows.push({ label: `τ ≥ ${(t.threshold * 100).toFixed(0)}% — all events`,
@@ -263,17 +306,30 @@ async function main() {
     R.thresholds.map(t => `<tr><td>≥ ${(t.threshold * 100).toFixed(0)}%</td><td>${t.n_districts}</td><td>${t.n_obs.toLocaleString()}</td><td>${(t.zero_share * 100).toFixed(1)}%</td><td>${Math.round(t.first_stage_F)}</td>` +
       `<td class="${t.events.coef < 0 && t.events.p < .05 ? 'neg' : ''}">${fmt(t.events.coef)}${stars(t.events.p)} (${t.events.p.toFixed(3)})</td>` +
       `<td class="${t.pv_events.coef < 0 && t.pv_events.p < .05 ? 'neg' : ''}">${fmt(t.pv_events.coef)}${stars(t.pv_events.p)} (${t.pv_events.p.toFixed(3)})</td></tr>`).join('') + '</table>';
+}
+function clearChart(id) { $(id).innerHTML = ''; }
 
-  // event types
+function renderEventNote(country) {
+  $('eventNote').textContent = country === 'nga'
+    ? 'The suppression effect is concentrated in riots and strategic developments (leadership/coup-related ' +
+      'activity); protests, battles/violence, and violence against civilians show no significant response — a ' +
+      'different pattern from Indonesia’s.'
+    : 'The suppression effect is concentrated in riots and violence against civilians; planned protests and ' +
+      'organized battles are unaffected — the pattern that distinguishes a spontaneous-crowd mechanism from a ' +
+      'simple disruption-of-assembly story.';
+}
+
+function renderEventSection(R) {
   const et = R.event_types;
   const evRows = Object.values(et.fourway).map(r => ({ ...r, label: r.label }))
     .concat(Object.values(et.twoway).map(r => ({ ...r, label: r.label + ' (composite)' })));
   coefPlot($('eventChart'), evRows);
   $('eventTable').innerHTML = '<table><tr><th>Outcome</th><th>Coefficient</th><th>SE</th><th>p</th></tr>' +
     evRows.map(r => `<tr><td>${r.label}</td><td class="${r.coef < 0 && r.p < .05 ? 'neg' : ''}">${fmt(r.coef)}${stars(r.p)}</td><td>${r.se.toFixed(4)}</td><td>${r.p.toFixed(3)}</td></tr>`).join('') + '</table>';
+}
 
-  // expanding window
-  const ex = R.expanding;
+function renderExpSection(R) {
+  const ex = R.expanding || [];
   if (ex.length > 1) {
     const yms = ex.map(d => d.end_ym);
     const c1 = css('--series-1'), c2 = css('--series-2');
@@ -287,8 +343,9 @@ async function main() {
         band: ex.map(d => [d.pv_events.coef - 1.96 * d.pv_events.se, d.pv_events.coef + 1.96 * d.pv_events.se]) },
     ], { height: 260, zeroDash: true, fmt: (v) => fmt(v, 4) });
   }
+}
 
-  // national series (two panels, one axis each)
+function renderTsSection(R) {
   const ns = R.national_series;
   const yms = ns.map(d => d.year_month);
   const c1 = css('--series-1'), c2 = css('--series-2'), c3 = css('--series-3');
@@ -306,63 +363,166 @@ async function main() {
   $('tsTable').innerHTML = '<table><tr><th>Month</th><th>Events</th><th>Political violence</th><th>Riots</th><th>Protests</th><th>Total FRP (MW)</th></tr>' +
     ns.slice(-24).map(d => `<tr><td>${ymLabel(d.year_month)}</td><td>${d.events}</td><td>${d.pv_events}</td><td>${d.riots}</td><td>${d.protests}</td><td>${Math.round(d.total_frp).toLocaleString()}</td></tr>`).join('') +
     '</table><p style="color:var(--muted);font-size:12px">Last 24 months shown.</p>';
+}
 
-  // map
+async function renderMapSection(country, R) {
   latest = R.district_latest;
-  document.querySelector('#map').insertAdjacentHTML('beforebegin', '');
   try {
-    geo = await (await fetch('data/districts.geojson')).json();
+    geo = await (await fetch(PROFILES[country].geoUrl)).json();
     drawMap();
   } catch (e) {
-    $('map').innerHTML = '<p class="note">District boundaries file missing (data/districts.geojson).</p>';
+    $('map').innerHTML = `<p class="note">District boundaries file missing (${PROFILES[country].geoUrl}).</p>`;
   }
-
-  $('foot').innerHTML =
-    `Model: y<sub>dt</sub> = α<sub>d</sub> + γ<sub>t</sub> + β·logFRP&#770;<sub>dt</sub> + β₁·logFRP<sub>d,t−1</sub> + ε<sub>dt</sub>, ` +
-    `with logFRP instrumented by upwind fire radiative power (300 km radius, ±45° cone around the district's monthly wind direction). ` +
-    `Standard errors clustered by province. Estimates on conflict-active subsamples are local effects for districts where conflict recurs, ` +
-    `not population averages; months flagged preliminary use near-real-time fire detections that have not yet passed science-quality processing. ` +
-    `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
-    `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
-    `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>. ` +
-    `Paper: <a href="https://github.com/Hariaksha/wlidfire-conflict/blob/main/paper/draft.pdf">draft.pdf</a>.`;
-
-  // redraw svg colors on theme flip
-  new MutationObserver(() => { $('threshChart').innerHTML = ''; $('eventChart').innerHTML = '';
-    $('expChart').innerHTML = ''; $('tsChart').innerHTML = ''; $('frpChart').innerHTML = '';
-    mainRender(R); })
-    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 }
 
-// re-render charts only (colors are resolved at draw time)
-function mainRender(R) {
-  const threshRows = [];
-  for (const t of R.thresholds) {
-    threshRows.push({ label: `τ ≥ ${(t.threshold * 100).toFixed(0)}% — all events`, ...t.events });
-    threshRows.push({ label: `τ ≥ ${(t.threshold * 100).toFixed(0)}% — political violence`, ...t.pv_events });
-  }
-  coefPlot($('threshChart'), threshRows);
-  const et = R.event_types;
-  coefPlot($('eventChart'), Object.values(et.fourway)
-    .concat(Object.values(et.twoway).map(r => ({ ...r, label: r.label + ' (composite)' }))));
-  const ex = R.expanding;
-  if (ex.length > 1) {
-    lineChart($('expChart'), ex.map(d => d.end_ym), [
-      { label: 'all events', color: css('--series-1'), values: ex.map(d => d.events.coef),
-        band: ex.map(d => [d.events.coef - 1.96 * d.events.se, d.events.coef + 1.96 * d.events.se]) },
-      { label: 'political violence', color: css('--series-2'), values: ex.map(d => d.pv_events.coef),
-        band: ex.map(d => [d.pv_events.coef - 1.96 * d.pv_events.se, d.pv_events.coef + 1.96 * d.pv_events.se]) },
-    ], { height: 260, zeroDash: true, fmt: (v) => fmt(v, 4) });
-  }
-  const ns = R.national_series, yms = ns.map(d => d.year_month);
-  lineChart($('tsChart'), yms, [
-    { label: 'events', color: css('--series-1'), values: ns.map(d => d.events) },
-    { label: 'political violence', color: css('--series-2'), values: ns.map(d => d.pv_events) },
-  ], { height: 220, fmt: (v) => v.toLocaleString() });
-  lineChart($('frpChart'), yms, [
-    { label: 'total FRP (MW)', color: css('--series-3'), values: ns.map(d => d.total_frp) },
-  ], { height: 160, fmt: (v) => Math.round(v).toLocaleString() + ' MW' });
-  drawMap();
+function renderRobustBadges(rob) {
+  const el = $('robustBadges');
+  if (!rob || !rob.placebo_test) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const chips = [];
+  for (const [k, v] of Object.entries(rob.placebo_test.categories || {}))
+    chips.push(`<span class="badge ${v.passed ? 'pass' : 'fail'}">${v.passed ? '✓' : '✗'} placebo test · ${k.replace(/_/g, ' ')}</span>`);
+  for (const [k, v] of Object.entries((rob.conley_se || {}).categories || {}))
+    chips.push(`<span class="badge ${v.passed ? 'pass' : 'fail'}">${v.passed ? '✓' : '✗'} Conley SE · ${k.replace(/_/g, ' ')}</span>`);
+  if (rob.checked_at) chips.push(`<span class="badge">checked ${rob.checked_at}</span>`);
+  el.innerHTML = chips.join('');
+  el.style.display = 'flex';
 }
 
-main();
+function renderRobustNote(R) {
+  const full = R.full_iv.find(s => s.label === 'IV-1');
+  const rob = R.meta.robustness || {};
+  $('robustNote').innerHTML =
+    `<div class="label">Reading this dashboard</div>` +
+    `<p>Averaged across all ${R.meta.n_districts} LGAs, the effect of fire intensity on conflict is ` +
+    `<span class="ns">a precise null</span> (coef ${fmt(full.coef, 4)}, p=${full.p.toFixed(2)}) — unlike Indonesia's ` +
+    `population-average result. The signal here is concentrated in two specific event types, ` +
+    `<b>Riots</b> and <b>Strategic developments</b>, in districts where conflict recurs (τ ≥ 30% of months).</p>` +
+    (rob.summary ? `<p style="margin-top:6px">${rob.summary}</p>` : '') +
+    `<p style="margin-top:6px;font-size:12px" class="ns">Point-in-time robustness checks (placebo instrument test, Conley ` +
+    `spatial-correlation SEs) were run manually${rob.checked_at ? ' on ' + rob.checked_at : ''} and are not part of the ` +
+    `automatic weekly re-estimation; this validation is less extensive than what Indonesia's paper underwent.</p>`;
+  $('robustNote').style.display = 'block';
+}
+
+function renderIndonesiaTiles(R) {
+  const t30 = R.thresholds.find(t => Math.abs(t.threshold - 0.30) < 1e-9);
+  const full = R.full_iv.find(s => s.label === 'IV-1');
+  const M = R.meta;
+  $('tiles').innerHTML =
+    tile('First-stage F', Math.round(R.first_stage.f_stat).toLocaleString(),
+      `upwind FRP → local FRP · instrument is ${R.first_stage.f_stat > 10 ? 'strong' : 'WEAK'}`) +
+    tile('Full-panel IV (all events)', `${fmt(full.coef, 4)}<span class="stars">${stars(full.p)}</span>`,
+      `p = ${full.p.toFixed(2)} · the population-average null`) +
+    tile('Conflict-active districts (τ≥30%)', `${fmt(t30.events.coef, 3)}<span class="stars">${stars(t30.events.p)}</span>`,
+      `events per log-point FRP · p = ${t30.events.p.toFixed(3)} · ${t30.n_districts} districts` +
+      (t30.events.p < 0.10 ? ` · ≈ ${Math.abs(pctOfMean(t30.events.coef, t30.mean_events)).toFixed(0)}% ` +
+        `${t30.events.coef < 0 ? 'fewer' : 'more'} events` : '')) +
+    tile('Panel', `${M.n_obs.toLocaleString()}`,
+      `district-months · ${M.n_districts} districts · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`);
+}
+
+async function renderNigeriaTiles(R) {
+  let idnF = null;
+  try { idnF = (await loadResults('idn')).first_stage.f_stat; } catch (e) { /* comparison omitted if unavailable */ }
+  const fw = R.event_types.fourway;
+  const full = R.full_iv.find(s => s.label === 'IV-1');
+  const M = R.meta;
+  $('tiles').innerHTML =
+    tile('First-stage F', Math.round(R.first_stage.f_stat).toLocaleString(),
+      idnF ? `upwind FRP → local FRP · stronger instrument than Indonesia's ${Math.round(idnF).toLocaleString()}`
+           : 'upwind FRP → local FRP · instrument is strong') +
+    tile('Riots', `${fmt(fw.riots.coef, 4)}<span class="stars">${stars(fw.riots.p)}</span>`,
+      `p = ${fw.riots.p.toFixed(3)} · τ≥30% conflict-active districts`) +
+    tile('Strategic developments', `${fmt(fw.strategic_developments.coef, 4)}<span class="stars">${stars(fw.strategic_developments.p)}</span>`,
+      `p = ${fw.strategic_developments.p.toFixed(3)} · τ≥30% conflict-active districts`) +
+    tile('Panel', `${M.n_obs.toLocaleString()}`,
+      `district-months · ${M.n_districts} LGAs · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`);
+}
+
+function renderFooter(country) {
+  if (country === 'nga') {
+    $('foot').innerHTML =
+      `Model: y<sub>dt</sub> = α<sub>d</sub> + γ<sub>t</sub> + β·logFRP&#770;<sub>dt</sub> + β₁·logFRP<sub>d,t−1</sub> + ε<sub>dt</sub>, ` +
+      `with logFRP instrumented by upwind fire radiative power (same 300 km/±45° upwind-cone instrument as Indonesia). ` +
+      `Standard errors clustered by state. Estimates on conflict-active subsamples (τ≥30%) are local effects for LGAs where ` +
+      `conflict recurs, not population averages; months flagged preliminary use near-real-time fire detections not yet ` +
+      `passed science-quality processing. Districts: GADM level-2 LGA boundaries. ` +
+      `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
+      `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
+      `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>.`;
+  } else {
+    $('foot').innerHTML =
+      `Model: y<sub>dt</sub> = α<sub>d</sub> + γ<sub>t</sub> + β·logFRP&#770;<sub>dt</sub> + β₁·logFRP<sub>d,t−1</sub> + ε<sub>dt</sub>, ` +
+      `with logFRP instrumented by upwind fire radiative power (300 km radius, ±45° cone around the district's monthly wind direction). ` +
+      `Standard errors clustered by province. Estimates on conflict-active subsamples are local effects for districts where conflict recurs, ` +
+      `not population averages; months flagged preliminary use near-real-time fire detections that have not yet passed science-quality processing. ` +
+      `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
+      `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
+      `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>. ` +
+      `Paper: <a href="https://github.com/Hariaksha/wlidfire-conflict/blob/main/paper/draft.pdf">draft.pdf</a>.`;
+  }
+}
+
+function orderSections(country) {
+  const wrap = document.querySelector('.wrap');
+  const threshSection = $('threshSection'), eventSection = $('eventSection');
+  if (country === 'nga') {
+    // event-type decomposition is Nigeria's primary chart, promoted above
+    // the (secondary, here) conflict-active-threshold cut.
+    wrap.insertBefore(eventSection, threshSection);
+  } else {
+    wrap.insertBefore(threshSection, eventSection);
+  }
+  $('expSection').style.display = country === 'nga' ? 'none' : '';
+  $('plainLang').style.display = country === 'nga' ? 'none' : '';
+  $('robustBadges').style.display = country === 'nga' ? 'flex' : 'none';
+  $('robustNote').style.display = country === 'nga' ? 'block' : 'none';
+}
+
+async function render(country, R) {
+  ['threshChart', 'eventChart', 'expChart', 'tsChart', 'frpChart'].forEach(clearChart);
+  orderSections(country);
+  renderVintages(R.meta);
+  if (country === 'nga') {
+    await renderNigeriaTiles(R);
+    renderRobustBadges(R.meta.robustness);
+    renderRobustNote(R);
+  } else {
+    renderIndonesiaTiles(R);
+    $('plainLang').innerHTML = plainLanguageHTML(R.thresholds);
+  }
+  renderThreshSection(R);
+  renderEventNote(country);
+  renderEventSection(R);
+  renderExpSection(R);
+  renderTsSection(R);
+  await renderMapSection(country, R);
+  renderFooter(country);
+}
+
+async function switchCountry(country) {
+  document.querySelectorAll('#countryToggle button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.country === country)));
+  let R;
+  try {
+    R = await loadResults(country);
+  } catch (e) {
+    document.querySelector('.wrap').insertAdjacentHTML('beforeend',
+      `<div class="err">Could not load <code>${PROFILES[country].resultsUrl}</code>. Run the pipeline first.</div>`);
+    return;
+  }
+  currentCountry = country;
+  currentR = R;
+  await render(country, R);
+}
+
+document.querySelectorAll('#countryToggle button').forEach(b =>
+  b.addEventListener('click', () => { if (b.dataset.country !== currentCountry) switchCountry(b.dataset.country); }));
+
+// redraw svg colors + re-render on theme flip
+new MutationObserver(() => {
+  if (!currentR) return;
+  render(currentCountry, currentR);
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+switchCountry('idn');

@@ -81,7 +81,12 @@ def conflict_active_table(panel):
                'n_districts': int(sub['district'].nunique()),
                'n_obs': int(len(sub)),
                'zero_share': float((sub['events'] == 0).mean()),
-               'first_stage_F': float(sub_f)}
+               'first_stage_F': float(sub_f),
+               # subsample means, so the dashboard can translate coefficients
+               # into "X% fewer events" plain-language terms live, rather
+               # than a hardcoded one-off number that goes stale as data updates
+               'mean_events': float(sub['events'].mean()),
+               'mean_pv_events': float(sub['pv_events'].mean())}
         for outcome in ['events', 'pv_events']:
             row[outcome] = _coef_row(_iv(sub, outcome))
         rows.append(row)

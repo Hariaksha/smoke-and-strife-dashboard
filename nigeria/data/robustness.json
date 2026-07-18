@@ -1,0 +1,24 @@
+{
+  "checked_at": "2026-07-17",
+  "note": "Point-in-time validation, not recomputed on the weekly pipeline schedule. Re-run nigeria/analysis/placebo_test.py and conley_se.py manually and update this file to refresh.",
+  "placebo_test": {
+    "description": "Instrument swapped for a >=500km-distant district's; a real effect should shrink toward zero and lose significance, since there's no physical wind-transport channel at that distance.",
+    "real_first_stage_F": 5472.1,
+    "placebo_first_stage_F": 55.1,
+    "categories": {
+      "riots": {"real_coef": -0.0067, "real_p": 0.091, "placebo_coef": 0.0157, "placebo_p": 0.418, "passed": true},
+      "strategic_developments": {"real_coef": -0.0165, "real_p": 0.000, "placebo_coef": 0.0047, "placebo_p": 0.820, "passed": true},
+      "protests": {"real_coef": -0.0102, "real_p": 0.134, "placebo_coef": -0.0941, "placebo_p": 0.192, "passed": false}
+    }
+  },
+  "conley_se": {
+    "description": "Spatial-correlation-robust standard errors (econtools SHAC estimator, triangle kernel), allowing residual correlation across province boundaries rather than only within them.",
+    "bandwidths_km": [100, 200, 500],
+    "categories": {
+      "riots": {"clustered_p": 0.044, "conley_p": [0.008, 0.018, 0.021], "passed": true},
+      "strategic_developments": {"clustered_p": 0.000, "conley_p": [0.006, 0.006, 0.001], "passed": true},
+      "violence_against_civilians": {"clustered_p": 0.968, "conley_p": [0.956, 0.958, 0.960], "passed": true}
+    }
+  },
+  "summary": "Riots and Strategic Developments both survive the placebo test (effect disappears/flips sign when the instrument is replaced with a physically implausible one) and Conley spatial-correlation SEs (remain significant, some even more so, across three bandwidths). Protests does not survive the placebo test as cleanly. Two of two robustness checks support the two headline categories."
+}
