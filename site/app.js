@@ -421,6 +421,18 @@ async function loadResults(country) {
 // shared across both countries: vintage chips, threshold section, event
 // section, national time series, map. Only the tiles/badges/notes and
 // section order/visibility differ.
+// Small pill elements (vintage chips, robustness badges) stagger in as a
+// group instead of appearing instantly - reinforces "evidence assembling
+// piece by piece", especially for the badges. Elements are freshly
+// created each call (innerHTML reset), so no old-tween cleanup is needed.
+function staggerChips(container) {
+  const chips = [...container.children];
+  if (chips.length && typeof gsap !== 'undefined' && !reduceMotion()) {
+    gsap.from(chips, { autoAlpha: 0, y: 6, duration: 0.35, ease: 'power1.out',
+      stagger: { amount: 0.4 } });
+  }
+}
+
 function renderVintages(M) {
   const V = M.vintages;
   const prelim = M.preliminary_months.length;
@@ -432,6 +444,7 @@ function renderVintages(M) {
     `<span class="chip">ERA5 wind through <b>${ymLabel(V.wind_through)}</b></span>`,
     `<span class="chip">Updated <b>${new Date(M.generated_at).toISOString().slice(0, 10)}</b></span>`,
   ].join('');
+  staggerChips($('vintages'));
 }
 
 function renderThreshSection(R) {
@@ -527,6 +540,7 @@ function renderRobustBadges(rob) {
   if (rob.checked_at) chips.push(`<span class="badge">checked ${rob.checked_at}</span>`);
   el.innerHTML = chips.join('');
   el.style.display = 'flex';
+  staggerChips(el);
 }
 
 function renderRobustNote(R) {
