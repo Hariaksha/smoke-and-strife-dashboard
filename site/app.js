@@ -118,21 +118,40 @@ function lineChart(container, yms, seriesList, opts = {}) {
     el('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', class: 'axis' }, g)
       .textContent = ymLabel(yms[i]);
 
+  const lines = [];
   for (const s of seriesList) {
+    let band = null;
     if (s.band) { // CI band
       const up = s.band.map((b, i) => `${x(i)},${y(b[1])}`);
       const dn = s.band.map((b, i) => `${x(i)},${y(b[0])}`).reverse();
-      el('polygon', { points: up.concat(dn).join(' '), fill: s.color, opacity: 0.14 }, svg);
+      band = el('polygon', { points: up.concat(dn).join(' '), fill: s.color, opacity: 0.14 }, svg);
     }
     const pts = s.values.map((v, i) => Number.isFinite(v) ? `${x(i)},${y(v)}` : null)
       .filter(Boolean).join(' ');
-    el('polyline', { points: pts, fill: 'none', stroke: s.color, 'stroke-width': 2,
+    const poly = el('polyline', { points: pts, fill: 'none', stroke: s.color, 'stroke-width': 2,
       'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
     const li = s.values.length - 1;
-    el('text', { x: x(li) + 8, y: y(s.values[li]) + 4, class: 'dlabel' }, svg)
-      .textContent = s.label; // direct label at line end (relief for low-contrast hues)
+    const label = el('text', { x: x(li) + 8, y: y(s.values[li]) + 4, class: 'dlabel' }, svg);
+    label.textContent = s.label; // direct label at line end (relief for low-contrast hues)
+    lines.push({ poly, label, band });
   }
   if (opts.zeroDash) el('line', { x1: M.l, x2: W - M.r, y1: y(0), y2: y(0), class: 'zline' }, svg);
+
+  // Draw-in reveal: each line "draws" left to right via the classic
+  // stroke-dasharray/dashoffset trick (no paid DrawSVG plugin needed);
+  // end labels and the CI band fade in once their line arrives.
+  if (typeof gsap !== 'undefined' && !reduceMotion()) {
+    lines.forEach(({ poly, label, band }) => {
+      const len = poly.getTotalLength();
+      gsap.set(poly, { strokeDasharray: len, strokeDashoffset: len });
+      gsap.set(label, { autoAlpha: 0 });
+      if (band) gsap.set(band, { autoAlpha: 0 });
+      const tl = gsap.timeline({ defaults: { ease: 'power2.inOut' } });
+      tl.to(poly, { strokeDashoffset: 0, duration: 1.1 });
+      if (band) tl.to(band, { autoAlpha: 1, duration: 0.8 }, 0);
+      tl.to(label, { autoAlpha: 1, duration: 0.3 }, '-=0.1');
+    });
+  }
 
   // crosshair + tooltip
   const cross = el('line', { y1: M.t, y2: H - M.b, stroke: css('--muted'),

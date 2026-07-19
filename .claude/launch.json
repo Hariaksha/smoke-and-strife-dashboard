@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dashboard-site-fresh",
+      "name": "dashboard-nocache",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["scripts/nocache_server.py", "8099", "site"],
-      "port": 8099
+      "runtimeArgs": ["scripts/nocache_server.py", "8234", "site"],
+      "port": 8234
     }
   ]
 }
