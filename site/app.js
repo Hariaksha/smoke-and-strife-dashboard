@@ -261,6 +261,7 @@ function drawMap() {
   const py = (lat) => (LAT0 - lat) / (LAT0 - LAT1) * H;
   const svg = el('svg', { viewBox: `0 0 ${W} ${H.toFixed(0)}`, role: 'img' }, container);
 
+  const paths = [];
   for (const f of geo.features) {
     const name = f.properties.district;
     const rec = lookup.get(name);
@@ -279,10 +280,19 @@ function drawMap() {
              `events: <b>${rec.events}</b> · political violence: <b>${rec.pv_events}</b>`
            : 'not in the conflict-matched panel'), ev));
     path.addEventListener('mouseleave', hideTip);
+    paths.push(path);
   }
   const ramp = $('mapRamp'); ramp.innerHTML = '';
   SEQ.forEach(s => { const i = document.createElement('i'); i.style.background = css(s); ramp.appendChild(i); });
   $('mapHi').textContent = 'high (log scale)';
+
+  // Staggered fade-in instead of every polygon popping in at once - total
+  // duration is fixed (amount, not each) so this reads the same whether
+  // there are 447 districts (Indonesia) or 775 LGAs (Nigeria).
+  if (typeof gsap !== 'undefined' && !reduceMotion()) {
+    gsap.from(paths, { autoAlpha: 0, duration: 0.5, ease: 'power1.out',
+      stagger: { amount: 0.9, from: 'random' } });
+  }
 }
 
 document.querySelectorAll('.maprow button').forEach(b =>
