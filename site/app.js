@@ -69,15 +69,27 @@ function plainLanguageHTML(thresholds) {
     `across all districts the population-average effect is a precise null (see the "Full-panel IV" tile above).</p>`;
 }
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+let tooltipVisible = false;
 function showTip(html, ev) {
-  tooltip.innerHTML = html; tooltip.style.display = 'block';
+  tooltip.innerHTML = html;
+  const wasHidden = !tooltipVisible;
+  if (wasHidden) tooltip.style.display = 'block'; // needed once, before measuring below
   const pad = 14, w = tooltip.offsetWidth, h = tooltip.offsetHeight;
   let x = ev.clientX + pad, y = ev.clientY + pad;
   if (x + w > innerWidth - 8) x = ev.clientX - w - pad;
   if (y + h > innerHeight - 8) y = ev.clientY - h - pad;
   tooltip.style.left = x + 'px'; tooltip.style.top = y + 'px';
+  if (!wasHidden) return; // already showing (just repositioning) - don't re-pop every mousemove
+  tooltipVisible = true;
+  if (typeof gsap === 'undefined' || reduceMotion()) { tooltip.style.opacity = '1'; return; }
+  gsap.fromTo(tooltip, { autoAlpha: 0, scale: 0.92 },
+    { autoAlpha: 1, scale: 1, duration: 0.1, ease: 'power1.out', overwrite: true });
 }
-function hideTip() { tooltip.style.display = 'none'; }
+function hideTip() {
+  tooltipVisible = false;
+  if (typeof gsap === 'undefined' || reduceMotion()) { tooltip.style.display = 'none'; return; }
+  gsap.to(tooltip, { autoAlpha: 0, scale: 0.92, duration: 0.1, ease: 'power1.in', overwrite: true });
+}
 
 function linScale(d0, d1, r0, r1) {
   const f = (v) => r0 + (v - d0) / (d1 - d0 || 1) * (r1 - r0);
