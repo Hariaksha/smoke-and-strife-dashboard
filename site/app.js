@@ -5,6 +5,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const $ = (id) => document.getElementById(id);
 const tooltip = $('tooltip');
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined') gsap.registerPlugin(ScrollTrigger);
 
 // ── theme toggle ──────────────────────────────────────────────────────────
 $('themeBtn').addEventListener('click', () => {
@@ -336,6 +337,32 @@ function animateTiles() {
   });
 }
 
+// Fades/slides each card section in as it scrolls into view, instead of
+// everything below the fold being visible as a static wall at once.
+// Re-created on every render() (country toggle, theme flip) since section
+// heights/order/visibility can all change between renders - old triggers
+// are killed first so they can't pile up or fire against stale layouts.
+let scrollTriggers = [];
+function setupScrollReveals() {
+  scrollTriggers.forEach(st => st.kill());
+  scrollTriggers = [];
+  const sections = ['threshSection', 'eventSection', 'expSection', 'tsSection', 'mapSection']
+    .map($).filter(el => el && getComputedStyle(el).display !== 'none');
+  if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
+  if (reduceMotion()) {
+    sections.forEach(el => gsap.set(el, { clearProps: 'all' }));
+    return;
+  }
+  sections.forEach(el => {
+    const tween = gsap.from(el, {
+      autoAlpha: 0, y: 40, duration: 0.6, ease: 'power2.out',
+      scrollTrigger: { trigger: el, start: 'top 88%', once: true },
+    });
+    scrollTriggers.push(tween.scrollTrigger);
+  });
+  ScrollTrigger.refresh();
+}
+
 const PROFILES = {
   idn: { resultsUrl: 'data/results.json', geoUrl: 'data/districts.geojson' },
   nga: { resultsUrl: 'data/results_nigeria.json', geoUrl: 'data/districts_nigeria.geojson' },
@@ -574,6 +601,7 @@ async function render(country, R) {
   renderTsSection(R);
   await renderMapSection(country, R);
   renderFooter(country);
+  setupScrollReveals();
 }
 
 // Crossfades #content (everything below the header/toggle) around a
