@@ -291,8 +291,49 @@ document.querySelectorAll('.maprow button').forEach(b =>
   }));
 
 // ── page assembly ─────────────────────────────────────────────────────────
-function tile(k, v, d) {
-  return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+function fmtTileNum(v, decimals) {
+  return decimals > 0 ? fmt(v, decimals) : Math.round(v).toLocaleString();
+}
+
+// anim: { value, decimals, suffix } - suffix is static HTML (e.g. significance
+// stars) appended after the number, not itself part of the count-up.
+function tile(k, d, anim) {
+  const zero = fmtTileNum(0, anim.decimals || 0);
+  return `<div class="tile"><div class="k">${k}</div>` +
+    `<div class="v" data-target="${anim.value}" data-decimals="${anim.decimals || 0}" ` +
+    `data-suffix="${encodeURIComponent(anim.suffix || '')}">${zero}${anim.suffix || ''}</div>` +
+    `<div class="d">${d}</div></div>`;
+}
+
+// Counts each tile's number up from zero on (re)render. Falls back to
+// setting the final value directly if GSAP didn't load or the user
+// prefers reduced motion.
+// Each call tweens a fresh throwaway {v:0} object (GSAP's overwrite can't
+// dedupe those against each other the way it can for a fixed DOM target),
+// so a render() re-triggered before the previous count-up finishes would
+// otherwise leave multiple tweens racing to write the same tile - kill
+// any still-running ones from the last call before starting new ones.
+let tileTweens = [];
+function animateTiles() {
+  tileTweens.forEach(t => t.kill());
+  tileTweens = [];
+  const els = document.querySelectorAll('#tiles .v[data-target]');
+  els.forEach((el, i) => {
+    const target = parseFloat(el.dataset.target);
+    const decimals = parseInt(el.dataset.decimals, 10);
+    const suffix = decodeURIComponent(el.dataset.suffix || '');
+    if (typeof gsap === 'undefined' || reduceMotion()) {
+      el.innerHTML = fmtTileNum(target, decimals) + suffix;
+      return;
+    }
+    const obj = { v: 0 };
+    const tw = gsap.to(obj, {
+      v: target, duration: 1, ease: 'power2.out', delay: i * 0.05, overwrite: true,
+      onUpdate: () => { el.innerHTML = fmtTileNum(obj.v, decimals) + suffix; },
+      onComplete: () => { el.innerHTML = fmtTileNum(target, decimals) + suffix; },
+    });
+    tileTweens.push(tw);
+  });
 }
 
 const PROFILES = {
@@ -441,34 +482,37 @@ function renderIndonesiaTiles(R) {
   const full = R.full_iv.find(s => s.label === 'IV-1');
   const M = R.meta;
   $('tiles').innerHTML =
-    tile('First-stage F', Math.round(R.first_stage.f_stat).toLocaleString(),
-      `upwind FRP → local FRP · instrument is ${R.first_stage.f_stat > 10 ? 'strong' : 'WEAK'}`) +
-    tile('Full-panel IV (all events)', `${fmt(full.coef, 4)}<span class="stars">${stars(full.p)}</span>`,
-      `p = ${full.p.toFixed(2)} · the population-average null`) +
-    tile('Conflict-active districts (τ≥30%)', `${fmt(t30.events.coef, 3)}<span class="stars">${stars(t30.events.p)}</span>`,
+    tile('First-stage F', `upwind FRP → local FRP · instrument is ${R.first_stage.f_stat > 10 ? 'strong' : 'WEAK'}`,
+      { value: R.first_stage.f_stat, decimals: 0 }) +
+    tile('Full-panel IV (all events)', `p = ${full.p.toFixed(2)} · the population-average null`,
+      { value: full.coef, decimals: 4, suffix: `<span class="stars">${stars(full.p)}</span>` }) +
+    tile('Conflict-active districts (τ≥30%)',
       `events per log-point FRP · p = ${t30.events.p.toFixed(3)} · ${t30.n_districts} districts` +
       (t30.events.p < 0.10 ? ` · ≈ ${Math.abs(pctOfMean(t30.events.coef, t30.mean_events)).toFixed(0)}% ` +
-        `${t30.events.coef < 0 ? 'fewer' : 'more'} events` : '')) +
-    tile('Panel', `${M.n_obs.toLocaleString()}`,
-      `district-months · ${M.n_districts} districts · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`);
+        `${t30.events.coef < 0 ? 'fewer' : 'more'} events` : ''),
+      { value: t30.events.coef, decimals: 3, suffix: `<span class="stars">${stars(t30.events.p)}</span>` }) +
+    tile('Panel', `district-months · ${M.n_districts} districts · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`,
+      { value: M.n_obs, decimals: 0 });
+  animateTiles();
 }
 
 async function renderNigeriaTiles(R) {
   let idnF = null;
   try { idnF = (await loadResults('idn')).first_stage.f_stat; } catch (e) { /* comparison omitted if unavailable */ }
   const fw = R.event_types.fourway;
-  const full = R.full_iv.find(s => s.label === 'IV-1');
   const M = R.meta;
   $('tiles').innerHTML =
-    tile('First-stage F', Math.round(R.first_stage.f_stat).toLocaleString(),
+    tile('First-stage F',
       idnF ? `upwind FRP → local FRP · stronger instrument than Indonesia's ${Math.round(idnF).toLocaleString()}`
-           : 'upwind FRP → local FRP · instrument is strong') +
-    tile('Riots', `${fmt(fw.riots.coef, 4)}<span class="stars">${stars(fw.riots.p)}</span>`,
-      `p = ${fw.riots.p.toFixed(3)} · τ≥30% conflict-active districts`) +
-    tile('Strategic developments', `${fmt(fw.strategic_developments.coef, 4)}<span class="stars">${stars(fw.strategic_developments.p)}</span>`,
-      `p = ${fw.strategic_developments.p.toFixed(3)} · τ≥30% conflict-active districts`) +
-    tile('Panel', `${M.n_obs.toLocaleString()}`,
-      `district-months · ${M.n_districts} LGAs · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`);
+           : 'upwind FRP → local FRP · instrument is strong',
+      { value: R.first_stage.f_stat, decimals: 0 }) +
+    tile('Riots', `p = ${fw.riots.p.toFixed(3)} · τ≥30% conflict-active districts`,
+      { value: fw.riots.coef, decimals: 4, suffix: `<span class="stars">${stars(fw.riots.p)}</span>` }) +
+    tile('Strategic developments', `p = ${fw.strategic_developments.p.toFixed(3)} · τ≥30% conflict-active districts`,
+      { value: fw.strategic_developments.coef, decimals: 4, suffix: `<span class="stars">${stars(fw.strategic_developments.p)}</span>` }) +
+    tile('Panel', `district-months · ${M.n_districts} LGAs · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`,
+      { value: M.n_obs, decimals: 0 });
+  animateTiles();
 }
 
 function renderFooter(country) {
