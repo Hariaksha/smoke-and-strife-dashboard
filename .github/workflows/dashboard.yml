@@ -52,11 +52,22 @@ jobs:
           ARRAYLAKE_ORG: ${{ secrets.ARRAYLAKE_ORG }}
         run: python -m nigeria.pipeline_update
 
+      - name: Run weekly update (Brazil)
+        continue-on-error: true
+        env:
+          ACLED_EMAIL: ${{ secrets.ACLED_EMAIL }}
+          ACLED_PASSWORD: ${{ secrets.ACLED_PASSWORD }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
+          ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
+          ARRAYLAKE_ORG: ${{ secrets.ARRAYLAKE_ORG }}
+        run: python -m brazil.pipeline_update
+
       - name: Commit refreshed artifacts
         run: |
           git config user.name "dashboard-bot"
           git config user.email "actions@github.com"
-          git add data site/data nigeria/data
+          git add data site/data nigeria/data brazil/data
           git diff --cached --quiet || git commit -m "Weekly dashboard data update"
           git push
 

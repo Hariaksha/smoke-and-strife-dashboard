@@ -176,7 +176,8 @@ def main():
     all_ym = pd.DataFrame(months, columns=['year', 'month'])
     panel = pd.merge(districts[['district']], all_ym, how='cross')
     panel = panel.merge(conflict_pm, on=['district', 'year', 'month'], how='left')
-    panel[['events', 'pv_events']] = panel[['events', 'pv_events']].fillna(0).astype(int)
+    conflict_cols = [c for c in conflict_pm.columns if c not in ('district', 'year', 'month')]
+    panel[conflict_cols] = panel[conflict_cols].fillna(0).astype(int)
     panel = panel.merge(fires_pm[['district', 'year', 'month', 'log_frp']],
                         on=['district', 'year', 'month'], how='left')
     panel['log_frp'] = panel['log_frp'].fillna(0)

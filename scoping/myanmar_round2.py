@@ -162,10 +162,23 @@ def aggregate_conflict(acled, districts_gdf):
         print(f'  unmatched (first 10): {sorted(unmatched)[:10]}')
 
     matched['is_pv'] = matched['event_type'].isin(cfg.POLITICAL_VIOLENCE)
-    out = (matched.groupby(['district', 'year', 'month'])
-           .agg(events=('event_type', 'count'), pv_events=('is_pv', 'sum'))
-           .reset_index())
-    out[['events', 'pv_events']] = out[['events', 'pv_events']].astype(int)
+    matched['is_riots_protests'] = matched['event_type'].isin(cfg.RIOTS_PROTESTS)
+    matched['is_battles'] = matched['event_type'].isin(cfg.BATTLES_VIOLENCE)
+    for col, t in cfg.FOURWAY_TYPES.items():
+        matched[f'is_{col}'] = matched['event_type'] == t
+
+    agg = {
+        'events': ('event_type', 'count'),
+        'pv_events': ('is_pv', 'sum'),
+        'riots_protests': ('is_riots_protests', 'sum'),
+        'battles_violence': ('is_battles', 'sum'),
+    }
+    for col in cfg.FOURWAY_TYPES:
+        agg[col] = (f'is_{col}', 'sum')
+
+    out = matched.groupby(['district', 'year', 'month']).agg(**agg).reset_index()
+    count_cols = [c for c in out.columns if c not in ('district', 'year', 'month')]
+    out[count_cols] = out[count_cols].astype(int)
     return out
 
 
@@ -230,7 +243,8 @@ def main():
     all_ym = pd.DataFrame(months, columns=['year', 'month'])
     panel = pd.merge(districts[['district']], all_ym, how='cross')
     panel = panel.merge(conflict_pm, on=['district', 'year', 'month'], how='left')
-    panel[['events', 'pv_events']] = panel[['events', 'pv_events']].fillna(0).astype(int)
+    conflict_cols = [c for c in conflict_pm.columns if c not in ('district', 'year', 'month')]
+    panel[conflict_cols] = panel[conflict_cols].fillna(0).astype(int)
     panel = panel.merge(fires_pm[['district', 'year', 'month', 'log_frp']],
                         on=['district', 'year', 'month'], how='left')
     panel['log_frp'] = panel['log_frp'].fillna(0)

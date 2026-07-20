@@ -376,6 +376,7 @@ function setupScrollReveals() {
 const PROFILES = {
   idn: { resultsUrl: 'data/results.json', geoUrl: 'data/districts.geojson' },
   nga: { resultsUrl: 'data/results_nigeria.json', geoUrl: 'data/districts_nigeria.geojson' },
+  bra: { resultsUrl: 'data/results_brazil.json', geoUrl: 'data/districts_brazil.geojson' },
 };
 const resultsCache = {};
 let currentCountry = 'idn', currentR = null;
@@ -437,6 +438,11 @@ function renderEventNote(country) {
     ? 'The suppression effect is concentrated in riots and strategic developments (leadership/coup-related ' +
       'activity); protests, battles/violence, and violence against civilians show no significant response — a ' +
       'different pattern from Indonesia’s.'
+    : country === 'bra'
+    ? 'No event type clears conventional significance in conflict-active municipalities. Protests comes ' +
+      'closest (p ≈ 0.08, positive sign) — tentatively consistent with a land-clearing/deforestation-conflict ' +
+      'mechanism rather than Indonesia’s/Nigeria’s smoke-suppresses-collective-action story, but not strong ' +
+      'enough evidence to call it a finding.'
     : 'The suppression effect is concentrated in riots and violence against civilians; planned protests and ' +
       'organized battles are unaffected — the pattern that distinguishes a spontaneous-crowd mechanism from a ' +
       'simple disruption-of-assembly story.';
@@ -550,6 +556,23 @@ function renderIndonesiaRobustNote(R) {
   $('robustNote').style.display = 'block';
 }
 
+function renderBrazilRobustNote(R) {
+  const full = R.full_iv.find(s => s.label === 'IV-1');
+  $('robustNote').innerHTML =
+    `<div class="label">Reading this dashboard</div>` +
+    `<p>Unlike Indonesia and Nigeria, <b>no coefficient here clears conventional significance</b> at any ` +
+    `conflict-activity threshold or event type — the population-average effect is ` +
+    `<span class="ns">a precise-but-borderline null</span> (coef ${fmt(full.coef, 4)}, p=${full.p.toFixed(2)}), ` +
+    `and the closest result (Protests, τ≥30%) sits at p≈0.08. This is a genuinely well-powered check ` +
+    `(first-stage F in the tens of thousands), not an underpowered one — the honest reading is that fire ` +
+    `intensity does not detectably move conflict in Brazil the way it does in Indonesia or Nigeria.</p>` +
+    `<p style="margin-top:6px;font-size:12px" class="ns">Panel covers 2018-01 through the latest ACLED-covered ` +
+    `month only — ACLED's own historical coverage of Brazil does not extend before January 2018 (confirmed via ` +
+    `a raw pull), unlike Indonesia's/Nigeria's decade-plus windows. No placebo test or Conley spatial-SE check ` +
+    `has been run for Brazil yet, unlike the other two countries.</p>`;
+  $('robustNote').style.display = 'block';
+}
+
 function renderIndonesiaTiles(R) {
   const rp = R.event_types.twoway.riots_protests;
   const full = R.full_iv.find(s => s.label === 'IV-1');
@@ -588,6 +611,22 @@ async function renderNigeriaTiles(R) {
   animateTiles();
 }
 
+function renderBrazilTiles(R) {
+  const full = R.full_iv.find(s => s.label === 'IV-1');
+  const protests = R.event_types.fourway.protests;
+  const M = R.meta;
+  $('tiles').innerHTML =
+    tile('First-stage F', 'upwind FRP → local FRP · instrument is very strong',
+      { value: R.first_stage.f_stat, decimals: 0 }) +
+    tile('Full-panel IV (all events)', `p = ${full.p.toFixed(2)} · no population-average effect`,
+      { value: full.coef, decimals: 4, suffix: `<span class="stars">${stars(full.p)}</span>` }) +
+    tile('Protests (τ≥30%, closest result)', `p = ${protests.p.toFixed(3)} · does not clear significance`,
+      { value: protests.coef, decimals: 4, suffix: `<span class="stars">${stars(protests.p)}</span>` }) +
+    tile('Panel', `district-months · ${M.n_districts} municipalities · 2018–${String(M.panel_end).slice(2,4)} coverage`,
+      { value: M.n_obs, decimals: 0 });
+  animateTiles();
+}
+
 function renderFooter(country) {
   if (country === 'nga') {
     $('foot').innerHTML =
@@ -596,6 +635,19 @@ function renderFooter(country) {
       `Standard errors clustered by state. Estimates on conflict-active subsamples (τ≥30%) are local effects for LGAs where ` +
       `conflict recurs, not population averages; months flagged preliminary use near-real-time fire detections not yet ` +
       `passed science-quality processing. Districts: GADM level-2 LGA boundaries. ` +
+      `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
+      `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
+      `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>.`;
+  } else if (country === 'bra') {
+    $('foot').innerHTML =
+      `Model: y<sub>dt</sub> = α<sub>d</sub> + γ<sub>t</sub> + β·logFRP&#770;<sub>dt</sub> + β₁·logFRP<sub>d,t−1</sub> + ε<sub>dt</sub>, ` +
+      `with logFRP instrumented by upwind fire radiative power (same 300 km/±45° upwind-cone instrument as Indonesia/Nigeria). ` +
+      `Standard errors clustered by state. Estimates on conflict-active subsamples are local effects for municipalities where ` +
+      `conflict recurs, not population averages; months flagged preliminary use near-real-time fire detections not yet ` +
+      `passed science-quality processing. Districts: GADM level-2 municipality boundaries (5,572 total; municipalities with ` +
+      `zero ACLED events across the whole panel are excluded, same convention as Nigeria). Panel begins 2018-01 — ACLED's ` +
+      `own historical coverage of Brazil does not extend earlier (confirmed directly against ACLED's raw event data), unlike ` +
+      `Indonesia's/Nigeria's longer windows. ` +
       `Conflict data © <a href="https://acleddata.com">ACLED</a>, used under its terms (aggregated counts only). ` +
       `Fire detections: NASA FIRMS VIIRS S-NPP. Winds: Copernicus ERA5. ` +
       `Code: <a href="https://github.com/Hariaksha/wlidfire-conflict">github.com/Hariaksha/wlidfire-conflict</a>.`;
@@ -622,7 +674,7 @@ function orderSections(country) {
   } else {
     wrap.insertBefore(threshSection, eventSection);
   }
-  $('expSection').style.display = country === 'nga' ? 'none' : '';
+  $('expSection').style.display = country === 'idn' ? '' : 'none';
   $('plainLang').style.display = 'none'; // superseded by the shared robustness note below
 }
 
@@ -634,6 +686,10 @@ async function render(country, R) {
     await renderNigeriaTiles(R);
     renderRobustBadges(R.meta.robustness);
     renderNigeriaRobustNote(R);
+  } else if (country === 'bra') {
+    renderBrazilTiles(R);
+    renderRobustBadges(R.meta.robustness);
+    renderBrazilRobustNote(R);
   } else {
     renderIndonesiaTiles(R);
     renderRobustBadges(R.meta.robustness);
