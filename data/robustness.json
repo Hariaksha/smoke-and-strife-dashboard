@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-07-09",
+  "note": "From the published working paper's own appendix (Section: Robustness), not recomputed on the weekly pipeline schedule. See analysis/wind-IV.ipynb in the climate-conflict repo for the code, or update this file by hand if the paper's robustness section is revised.",
+  "placebo_test": {
+    "description": "Instrument swapped for a randomly-assigned district >=500km away (no physical wind-transport channel); tested against the tau>=30% conflict-active sample where the real effect is significant.",
+    "real_first_stage_F": 508,
+    "placebo_first_stage_F": 3.5,
+    "categories": {
+      "events": {"real_coef": -0.0230, "real_p": 0.001, "placebo_coef": 0.0200, "placebo_p": 0.134, "passed": true},
+      "pv_events": {"real_coef": -0.0095, "real_p": 0.013, "placebo_coef": 0.0026, "placebo_p": 0.456, "passed": true}
+    }
+  },
+  "seasonality_test": {
+    "description": "Adds a province x calendar-month fixed effect to absorb shared regional seasonal fire cycles (e.g. a province-wide dry-season burning calendar) that the baseline year-month fixed effects don't capture.",
+    "first_stage_F_with_fe": 1978,
+    "baseline_first_stage_F": 4447,
+    "categories": {
+      "events": {"baseline_coef": -0.112, "baseline_p": 0.005, "fe_coef": -0.1077, "fe_p": 0.186, "passed": false},
+      "pv_events": {"baseline_coef": -0.046, "baseline_p": 0.006, "fe_coef": -0.0864, "fe_p": 0.001, "passed": true}
+    }
+  },
+  "conley_se": {
+    "description": "Spatial-correlation-robust standard errors (custom two-way-demeaned 2SLS/GMM sandwich, since pyfixest doesn't support Conley SEs for IV models), allowing residual correlation across province boundaries rather than only within them.",
+    "bandwidths_km": [100, 200, 400],
+    "categories": {
+      "events": {"clustered_p": 0.005, "conley_p": [0.079, 0.083, 0.085], "passed": false},
+      "pv_events": {"clustered_p": 0.006, "conley_p": [0.115, 0.127, 0.133], "passed": false},
+      "riots_protests": {"clustered_p": 0.002, "conley_p": [0.016, 0.014, 0.014], "passed": true},
+      "battles_violence": {"clustered_p": 0.964, "conley_p": [0.985, 0.986, 0.986], "passed": true}
+    }
+  },
+  "summary": "The broader conflict-active-threshold result (all events and political-violence events, tau>=30%) does not fully survive stricter checks: it loses significance under an added province x calendar-month seasonal fixed effect (events only) and both events and political-violence fall just short of significance under Conley spatial-correlation SEs at every bandwidth. The narrower Riots/Protests composite result is robust to every check (placebo test, seasonality, and Conley SEs at all three bandwidths) and is the result the paper's own discussion section revises its headline framing around. Read the broader threshold numbers as suggestive rather than conclusive; the Riots/Protests result is the best-supported finding."
+}

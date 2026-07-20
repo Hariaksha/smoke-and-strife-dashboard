@@ -129,6 +129,10 @@ def build_results(meta, districts):
     prelim_months = [int(ym) for ym in sorted(pnl['year_month'].unique())
                      if ym > meta['fire_final_through']]
 
+    robustness = {}
+    if config.ROBUSTNESS_JSON.exists():
+        robustness = json.loads(config.ROBUSTNESS_JSON.read_text())
+
     results = {
         'meta': {
             'generated_at': datetime.now(timezone.utc).isoformat(),
@@ -145,6 +149,7 @@ def build_results(meta, districts):
                 'wind_through': meta['wind_through'],
             },
             'preliminary_months': prelim_months,
+            'robustness': robustness,
         },
         'first_stage': fs,
         'full_iv': full_iv,

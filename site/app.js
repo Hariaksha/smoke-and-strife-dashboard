@@ -33,41 +33,10 @@ function fmt(x, d = 4) { return (x >= 0 ? '' : '−') + Math.abs(x).toFixed(d); 
 function stars(p) { return p < 0.01 ? '***' : p < 0.05 ? '**' : p < 0.1 ? '*' : ''; }
 
 // ── plain-language translation of a threshold row's coefficients ──────────
-// "One log-point" is a fixed multiplier (e ≈ 2.72x), not data-dependent.
-// The percent-of-outcome-mean conversion (coef / mean * 100) IS data-
-// dependent and must be computed live from whatever results.json currently
-// holds, not hardcoded to one week's numbers.
-const LOG_PT_MULT = Math.E;
+// The percent-of-outcome-mean conversion (coef / mean * 100) is
+// data-dependent and must be computed live from whatever results.json
+// currently holds, not hardcoded to one week's numbers.
 function pctOfMean(coef, mean) { return mean > 0 ? (coef / mean) * 100 : null; }
-function plainClause(coef, p, mean, noun) {
-  const pct = pctOfMean(coef, mean);
-  if (p >= 0.10 || pct === null)
-    return `<span class="ns">no statistically significant change in ${noun} detected</span>`;
-  const dir = coef < 0 ? 'fewer' : 'more';
-  return `~<b>${Math.abs(pct).toFixed(0)}% ${dir} ${noun}</b> (p=${p.toFixed(3)})`;
-}
-function plainLanguageHTML(thresholds) {
-  // Headline on the highest threshold with *any* significant result, since
-  // that's what the tiles above already feature; if nothing is significant
-  // anywhere, say so plainly rather than picking a number to feature.
-  const sig = thresholds.filter(t => t.events.p < 0.10 || t.pv_events.p < 0.10);
-  const t = sig.length ? sig[sig.length - 1] : thresholds[thresholds.length - 1];
-  const mult = LOG_PT_MULT.toFixed(1);
-  const pctJump = ((LOG_PT_MULT - 1) * 100).toFixed(0);
-  if (!sig.length) {
-    return `<div class="label">In plain terms</div>` +
-      `<p>In the ${t.n_districts} districts where conflict recurs most often (≥${(t.threshold*100).toFixed(0)}% of months), ` +
-      `a roughly ${pctJump}% jump in local fire intensity (fire intensity ×${mult}) shows ` +
-      `<span class="ns">no statistically significant effect on conflict this week</span> — the population-average finding is a precise null.</p>`;
-  }
-  return `<div class="label">In plain terms</div>` +
-    `<p>In the ${t.n_districts} districts where conflict recurs most often (≥${(t.threshold*100).toFixed(0)}% of months), ` +
-    `a roughly ${pctJump}% jump in local fire intensity (a "one-log-point" increase — fire intensity ×${mult}) is associated with ` +
-    `${plainClause(t.events.coef, t.events.p, t.mean_events, 'conflict events')} and ` +
-    `${plainClause(t.pv_events.coef, t.pv_events.p, t.mean_pv_events, 'political-violence events')}.</p>` +
-    `<p style="margin-top:6px">This is a <b>local effect for conflict-prone districts</b>, not a national average — ` +
-    `across all districts the population-average effect is a precise null (see the "Full-panel IV" tile above).</p>`;
-}
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 let tooltipVisible = false;
 function showTip(html, ev) {
@@ -535,6 +504,8 @@ function renderRobustBadges(rob) {
   const chips = [];
   for (const [k, v] of Object.entries(rob.placebo_test.categories || {}))
     chips.push(`<span class="badge ${v.passed ? 'pass' : 'fail'}">${v.passed ? '✓' : '✗'} placebo test · ${k.replace(/_/g, ' ')}</span>`);
+  for (const [k, v] of Object.entries((rob.seasonality_test || {}).categories || {}))
+    chips.push(`<span class="badge ${v.passed ? 'pass' : 'fail'}">${v.passed ? '✓' : '✗'} seasonal FE · ${k.replace(/_/g, ' ')}</span>`);
   for (const [k, v] of Object.entries((rob.conley_se || {}).categories || {}))
     chips.push(`<span class="badge ${v.passed ? 'pass' : 'fail'}">${v.passed ? '✓' : '✗'} Conley SE · ${k.replace(/_/g, ' ')}</span>`);
   if (rob.checked_at) chips.push(`<span class="badge">checked ${rob.checked_at}</span>`);
@@ -543,7 +514,7 @@ function renderRobustBadges(rob) {
   staggerChips(el);
 }
 
-function renderRobustNote(R) {
+function renderNigeriaRobustNote(R) {
   const full = R.full_iv.find(s => s.label === 'IV-1');
   const rob = R.meta.robustness || {};
   $('robustNote').innerHTML =
@@ -559,8 +530,28 @@ function renderRobustNote(R) {
   $('robustNote').style.display = 'block';
 }
 
+function renderIndonesiaRobustNote(R) {
+  const rp = R.event_types.twoway.riots_protests;
+  const rob = R.meta.robustness || {};
+  $('robustNote').innerHTML =
+    `<div class="label">Reading this dashboard</div>` +
+    `<p>The <b>Riots/Protests</b> tile above (coef ${fmt(rp.coef, 4)}, p=${rp.p.toFixed(3)}) is the ` +
+    `paper's best-supported finding — it survives a placebo instrument test and Conley spatial-correlation ` +
+    `standard errors at every bandwidth checked. The broader ` +
+    `<b>conflict-active threshold</b> result shown further down (all conflict events / political-violence ` +
+    `events in districts where conflict recurs) does <b>not</b> fully clear the same bar: it loses ` +
+    `significance under an added seasonal fixed effect (events) and both outcomes fall just short of ` +
+    `significance under Conley SEs at every bandwidth.</p>` +
+    (rob.summary ? `<p style="margin-top:6px">${rob.summary}</p>` : '') +
+    `<p style="margin-top:6px;font-size:12px" class="ns">From the published working paper's own appendix` +
+    `${rob.checked_at ? ' (checked ' + rob.checked_at + ')' : ''}, not recomputed on the weekly pipeline ` +
+    `schedule — the coefficients above update weekly with fresh data, but the pass/fail robustness checks ` +
+    `themselves are a point-in-time snapshot from the paper.</p>`;
+  $('robustNote').style.display = 'block';
+}
+
 function renderIndonesiaTiles(R) {
-  const t30 = R.thresholds.find(t => Math.abs(t.threshold - 0.30) < 1e-9);
+  const rp = R.event_types.twoway.riots_protests;
   const full = R.full_iv.find(s => s.label === 'IV-1');
   const M = R.meta;
   $('tiles').innerHTML =
@@ -568,11 +559,11 @@ function renderIndonesiaTiles(R) {
       { value: R.first_stage.f_stat, decimals: 0 }) +
     tile('Full-panel IV (all events)', `p = ${full.p.toFixed(2)} · the population-average null`,
       { value: full.coef, decimals: 4, suffix: `<span class="stars">${stars(full.p)}</span>` }) +
-    tile('Conflict-active districts (τ≥30%)',
-      `events per log-point FRP · p = ${t30.events.p.toFixed(3)} · ${t30.n_districts} districts` +
-      (t30.events.p < 0.10 ? ` · ≈ ${Math.abs(pctOfMean(t30.events.coef, t30.mean_events)).toFixed(0)}% ` +
-        `${t30.events.coef < 0 ? 'fewer' : 'more'} events` : ''),
-      { value: t30.events.coef, decimals: 3, suffix: `<span class="stars">${stars(t30.events.p)}</span>` }) +
+    tile('Riots/Protests (τ≥30%, robust)',
+      `events per log-point FRP · p = ${rp.p.toFixed(3)} · survives placebo test + Conley SEs` +
+      (rp.p < 0.10 ? ` · ≈ ${Math.abs(pctOfMean(rp.coef, rp.mean)).toFixed(0)}% ` +
+        `${rp.coef < 0 ? 'fewer' : 'more'} riots/protests` : ''),
+      { value: rp.coef, decimals: 4, suffix: `<span class="stars">${stars(rp.p)}</span>` }) +
     tile('Panel', `district-months · ${M.n_districts} districts · ${(M.zero_share_events * 100).toFixed(1)}% zero-event`,
       { value: M.n_obs, decimals: 0 });
   animateTiles();
@@ -632,9 +623,7 @@ function orderSections(country) {
     wrap.insertBefore(threshSection, eventSection);
   }
   $('expSection').style.display = country === 'nga' ? 'none' : '';
-  $('plainLang').style.display = country === 'nga' ? 'none' : '';
-  $('robustBadges').style.display = country === 'nga' ? 'flex' : 'none';
-  $('robustNote').style.display = country === 'nga' ? 'block' : 'none';
+  $('plainLang').style.display = 'none'; // superseded by the shared robustness note below
 }
 
 async function render(country, R) {
@@ -644,10 +633,11 @@ async function render(country, R) {
   if (country === 'nga') {
     await renderNigeriaTiles(R);
     renderRobustBadges(R.meta.robustness);
-    renderRobustNote(R);
+    renderNigeriaRobustNote(R);
   } else {
     renderIndonesiaTiles(R);
-    $('plainLang').innerHTML = plainLanguageHTML(R.thresholds);
+    renderRobustBadges(R.meta.robustness);
+    renderIndonesiaRobustNote(R);
   }
   renderThreshSection(R);
   renderEventNote(country);

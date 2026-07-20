@@ -98,10 +98,10 @@ def event_type_tables(panel):
     twoway = {}
     for col, label in [('riots_protests', 'Riots/Protests'),
                        ('battles_violence', 'Battles/Violence')]:
-        twoway[col] = {'label': label, **_coef_row(_iv(sub30, col))}
+        twoway[col] = {'label': label, 'mean': float(sub30[col].mean()), **_coef_row(_iv(sub30, col))}
     fourway = {}
     for col, label in config.FOURWAY_TYPES.items():
-        fourway[col] = {'label': label, **_coef_row(_iv(sub30, col))}
+        fourway[col] = {'label': label, 'mean': float(sub30[col].mean()), **_coef_row(_iv(sub30, col))}
     return twoway, fourway
 
 

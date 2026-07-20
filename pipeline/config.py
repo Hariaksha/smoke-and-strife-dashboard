@@ -92,6 +92,7 @@ INSTRUMENT_PARQUET = DATA_DIR / 'instrument.parquet'
 WIND_PM_PARQUET = DATA_DIR / 'wind_pm.parquet'
 CONFLICT_PM_PARQUET = DATA_DIR / 'conflict_pm.parquet'
 META_JSON = DATA_DIR / 'meta.json'
+ROBUSTNESS_JSON = DATA_DIR / 'robustness.json'
 RESULTS_JSON = SITE_DATA_DIR / 'results.json'
 DISTRICTS_GEOJSON = SITE_DATA_DIR / 'districts.geojson'
 
