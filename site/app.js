@@ -752,11 +752,21 @@ function fadeContent(dir) {
       resolve();
       return;
     }
+    // resolve() only fires once - the earlier of GSAP's onComplete or this
+    // timeout wins, whichever comes first. switchCountry awaits this
+    // promise before clearing its `switching` guard, so if onComplete
+    // never fires (the same ticker-stall failure mode that broke scroll
+    // reveals - see setupScrollReveals), the whole country toggle would
+    // otherwise freeze permanently for the rest of the session instead of
+    // just missing a cosmetic fade.
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    setTimeout(finish, 600);
     if (dir === 'out') {
-      gsap.to(content, { autoAlpha: 0, y: 6, duration: 0.16, ease: 'power1.in', overwrite: true, onComplete: resolve });
+      gsap.to(content, { autoAlpha: 0, y: 6, duration: 0.16, ease: 'power1.in', overwrite: true, onComplete: finish });
     } else {
       gsap.fromTo(content, { autoAlpha: 0, y: 6 },
-        { autoAlpha: 1, y: 0, duration: 0.4, ease: 'power2.out', overwrite: true, onComplete: resolve });
+        { autoAlpha: 1, y: 0, duration: 0.4, ease: 'power2.out', overwrite: true, onComplete: finish });
     }
   });
 }
@@ -780,6 +790,7 @@ async function switchCountry(country) {
   }
   currentCountry = country;
   currentR = R;
+  if (location.hash.slice(1) !== country) history.replaceState(null, '', '#' + country);
   await render(country, R);
   await fadeContent('in');
   switching = false;
@@ -788,10 +799,23 @@ async function switchCountry(country) {
 document.querySelectorAll('#countryToggle button').forEach(b =>
   b.addEventListener('click', () => { if (b.dataset.country !== currentCountry) switchCountry(b.dataset.country); }));
 
+// Back/forward navigation between hashes (e.g. a link to #bra opened in a
+// tab already showing #idn) - not just the initial load below.
+window.addEventListener('hashchange', () => {
+  const country = location.hash.slice(1);
+  if (PROFILES[country] && country !== currentCountry) switchCountry(country);
+});
+
 // redraw svg colors + re-render on theme flip
 new MutationObserver(() => {
   if (!currentR) return;
   render(currentCountry, currentR);
 }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-switchCountry('idn');
+// Restores whichever tab was last selected across a refresh via the URL
+// hash (set by switchCountry itself), so this generalizes automatically
+// to any country added to PROFILES later - no list to keep in sync here.
+{
+  const initial = location.hash.slice(1);
+  switchCountry(PROFILES[initial] ? initial : 'idn');
+}
