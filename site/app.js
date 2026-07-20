@@ -350,27 +350,60 @@ function animateTiles() {
 // Fades/slides each card section in as it scrolls into view, instead of
 // everything below the fold being visible as a static wall at once.
 // Re-created on every render() (country toggle, theme flip) since section
-// heights/order/visibility can all change between renders - old triggers
-// are killed first so they can't pile up or fire against stale layouts.
-let scrollTriggers = [];
+// heights/order/visibility can all change between renders.
+//
+// Originally built on gsap.from()+ScrollTrigger, which turned out fragile
+// in a way that broke for real users, not just test automation: the
+// "from" (invisible) state applies the instant gsap.from() is called,
+// and revealing it depends entirely on GSAP's requestAnimationFrame
+// ticker actually advancing. Browsers throttle/pause that ticker whenever
+// a tab loses focus or visibility even briefly (alt-tabbing, a screenshot
+// tool stealing focus), and since each ScrollTrigger only fires once,
+// a stall at the wrong moment permanently stranded whole sections
+// (charts, map) invisible - correct DOM/height, zero opacity, a silent
+// blank gap. Replaced with IntersectionObserver + a plain CSS transition:
+// IntersectionObserver delivers pending observations as soon as the tab
+// regains visibility (it doesn't depend on rAF ticking to "catch up"),
+// and a CSS transition always settles at its true end state on the next
+// paint rather than getting stuck mid-animation, so there's no failure
+// mode where the class toggle happens but the visible result doesn't.
+let revealObserver = null;
 function setupScrollReveals() {
-  scrollTriggers.forEach(st => st.kill());
-  scrollTriggers = [];
+  if (revealObserver) revealObserver.disconnect();
   const sections = ['threshSection', 'eventSection', 'expSection', 'tsSection', 'mapSection']
     .map($).filter(el => el && getComputedStyle(el).display !== 'none');
-  if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
-  if (reduceMotion()) {
-    sections.forEach(el => gsap.set(el, { clearProps: 'all' }));
+  if (reduceMotion() || typeof IntersectionObserver === 'undefined') {
+    sections.forEach(el => el.classList.remove('reveal-pending'));
     return;
   }
+  // Elements already in (or above) the viewport at setup time are shown
+  // synchronously, with no animation or observer involved at all - there
+  // is nothing to "reveal on scroll" for something already on screen, and
+  // this path can't get stuck the way anything frame/observer-driven can.
+  // Only genuinely below-the-fold elements get the pending class and an
+  // IntersectionObserver watching for them to scroll into view.
+  const vh = innerHeight || document.documentElement.clientHeight;
+  const pending = [];
   sections.forEach(el => {
-    const tween = gsap.from(el, {
-      autoAlpha: 0, y: 40, duration: 0.6, ease: 'power2.out',
-      scrollTrigger: { trigger: el, start: 'top 88%', once: true },
-    });
-    scrollTriggers.push(tween.scrollTrigger);
+    if (el.getBoundingClientRect().top < vh * 0.88) el.classList.remove('reveal-pending');
+    else { el.classList.add('reveal-pending'); pending.push(el); }
   });
-  ScrollTrigger.refresh();
+  if (!pending.length) return;
+  // Belt-and-suspenders: whatever the animation/observer pipeline does,
+  // content must not stay invisible forever. Force every still-pending
+  // section visible after 1.5s regardless of whether IntersectionObserver
+  // ever fired - a decorative entrance is worth losing far more readily
+  // than real content silently disappearing.
+  setTimeout(() => pending.forEach(el => el.classList.remove('reveal-pending')), 1500);
+  revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.remove('reveal-pending');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0, rootMargin: '0px 0px -12% 0px' });
+  pending.forEach(el => revealObserver.observe(el));
 }
 
 const PROFILES = {

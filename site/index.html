@@ -69,6 +69,17 @@ h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
 section.card {
   background: var(--surface-1); border: 1px solid var(--border);
   border-radius: 12px; padding: 18px 20px 14px; margin-bottom: 16px;
+  opacity: 1; transform: none; transition: opacity .6s ease, transform .6s ease;
+}
+/* Scroll-reveal pending state (site/app.js's setupScrollReveals). A plain
+   CSS transition rather than a JS-driven tween - the transition always
+   settles at its true end state on the next paint even if the tab was
+   throttled/backgrounded mid-animation, unlike a requestAnimationFrame-
+   ticker-driven tween, which can get permanently stuck invisible if the
+   ticker stalls (a real bug this replaced - see setupScrollReveals). */
+section.card.reveal-pending { opacity: 0; transform: translateY(40px); }
+@media (prefers-reduced-motion: reduce) {
+  section.card { transition: none; }
 }
 section.card h2 { font-size: 16px; font-weight: 650; }
 section.card .note { font-size: 13px; color: var(--text-secondary); margin: 3px 0 10px; max-width: 88ch; }
