@@ -775,6 +775,12 @@ let switching = false;
 async function switchCountry(country) {
   if (switching) return; // ignore clicks while a transition is already in flight
   switching = true;
+  // Clear any error left over from a previous failed attempt (at any
+  // country) before this one starts - otherwise a single transient fetch
+  // failure stays permanently visible on every tab from then on, since
+  // .err was appended to .wrap, which persists across switches and is
+  // never itself re-rendered.
+  document.querySelectorAll('.err').forEach(el => el.remove());
   document.querySelectorAll('#countryToggle button').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.country === country)));
   if (currentR) await fadeContent('out');
@@ -782,8 +788,9 @@ async function switchCountry(country) {
   try {
     R = await loadResults(country);
   } catch (e) {
+    const url = PROFILES[country] ? PROFILES[country].resultsUrl : country;
     document.querySelector('.wrap').insertAdjacentHTML('beforeend',
-      `<div class="err">Could not load <code>${PROFILES[country].resultsUrl}</code>. Run the pipeline first.</div>`);
+      `<div class="err">Could not load <code>${url}</code>. Run the pipeline first.</div>`);
     await fadeContent('in');
     switching = false;
     return;
